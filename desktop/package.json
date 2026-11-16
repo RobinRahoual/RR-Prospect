@@ -1,12 +1,15 @@
 {
   "name": "rr-prospect-desktop",
   "version": "0.1.0",
-  "description": "RR Prospect — client Windows avec pont Ollama local",
+  "description": "RR Prospect — client Windows avec assistant d'installation et pont Ollama local",
   "author": "Robin Rahoual",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win nsis --publish never"
+  },
+  "dependencies": {
+    "ssh2": "^1.17.0"
   },
   "devDependencies": {
     "electron": "^33.0.0",
@@ -15,8 +18,38 @@
   "build": {
     "appId": "fr.robinrahoual.rrprospect",
     "productName": "RR Prospect",
-    "files": ["main.js", "preload.js", "setup.html", "package.json"],
-    "win": { "target": "nsis", "artifactName": "RR-Prospect-Setup-${version}.${ext}" },
-    "nsis": { "oneClick": true, "perMachine": false, "createDesktopShortcut": true, "runAfterFinish": true }
+    "files": [
+      "main.js",
+      "preload.js",
+      "setup.html",
+      "lib/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../docker-compose.yml",
+        "to": "deploy/docker-compose.yml"
+      },
+      {
+        "from": "../api",
+        "to": "deploy/api",
+        "filter": [
+          "Dockerfile",
+          "requirements.txt",
+          "app/**",
+          "!**/__pycache__/**"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "artifactName": "RR-Prospect-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "runAfterFinish": true
+    }
   }
 }

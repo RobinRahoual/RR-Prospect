@@ -8,7 +8,8 @@ contextBridge.exposeInMainWorld("localAI", {
 
 // Utilisé uniquement par setup.html (le processus principal refuse tout autre appelant)
 contextBridge.exposeInMainWorld("rrSetup", {
-  get: () => ipcRenderer.invoke("setup:get"),
-  save: (cfg) => ipcRenderer.invoke("setup:save", cfg),
-  done: () => ipcRenderer.invoke("setup:done"),
+  get: () => ipcRenderer.invoke("wizard:get"),
+  step: (name, params) => ipcRenderer.invoke(`wizard:${name}`, params),
+  done: () => ipcRenderer.invoke("wizard:done"),
+  onLog: (cb) => ipcRenderer.on("wizard:log", (_e, line) => cb(line)),
 });

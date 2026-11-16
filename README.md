@@ -2,32 +2,17 @@
 
 Squelette API + base + routeur IA. NAS = API, base, (plus tard) front et pixel. PC = `.exe` Electron + Ollama local. iPad = PWA, Gemini.
 
-## 1. Tester ta clé Gemini (sur ton PC, avant tout déploiement)
-```powershell
-cd rr-prospect
-pip install google-genai pydantic pydantic-settings sqlalchemy
-$env:GEMINI_API_KEY="ta_clé"
-python scripts/test_gemini.py --list   # noms de modèles dispo pour ta clé
-python scripts/test_gemini.py          # test Pro puis Flash
-```
-Si Pro répond `429 / limit: 0` → active la facturation à l'usage dans AI Studio et mets un plafond de budget dans Google Cloud.
-Ajuste `GEMINI_MODEL` / `GEMINI_FALLBACK_MODEL` dans `.env` selon la liste.
+## Installation (automatique)
+1. Onglet **Releases** → télécharge `RR-Prospect-Setup-x.y.z.exe` → double-clic (SmartScreen : « Informations complémentaires » → « Exécuter quand même », l'installeur n'est pas signé).
+2. L'assistant demande 4 infos (IP du NAS, utilisateur/mot de passe SSH, clé Gemini, modèle) puis fait tout seul :
+   - installe Ollama, télécharge le modèle, active Vulkan si le GPU n'est pas utilisé,
+   - teste la clé Gemini (Pro, sinon Flash) et corrige les noms de modèles,
+   - déploie l'API + PostgreSQL sur le NAS par SSH (`docker compose up -d --build`), génère les secrets, vérifie que l'API répond.
+3. Relancer l'assistant est sans risque : les secrets du NAS sont conservés.
 
-## 2. Déployer sur le NAS
-```bash
-cp .env.example .env   # remplis POSTGRES_PASSWORD, APP_TOKEN, GEMINI_API_KEY
-docker compose up -d --build
-curl -H "Authorization: Bearer $APP_TOKEN" http://IP_NAS:8000/api/health
-```
-Docs interactives : `http://IP_NAS:8000/docs`
+Prérequis : une clé Gemini ([AI Studio](https://aistudio.google.com/apikey)), Docker sur le NAS (CasaOS l'installe), SSH actif.
 
-## 3. Le .exe (PC) — installation en un clic
-1. Onglet **Releases** du dépôt → télécharge `RR-Prospect-Setup-x.y.z.exe` → double-clic.
-2. Au premier lancement, saisis l'adresse de la webapp du NAS (ex. `http://192.168.1.50:3000`) et le modèle Ollama.
-3. Prérequis : Ollama installé, `ollama pull mistral-nemo`, `ollama ps` doit afficher 100 % GPU.
-
-Publier une nouvelle version : `git tag v0.1.0 && git push origin v0.1.0` → GitHub Actions compile l'installeur et l'attache à la Release.
-Compiler à la main : `cd desktop && npm install && npm run build` (installeur dans `desktop/dist`).
+Publier une version : `git tag v0.1.1 && git push origin v0.1.1` → GitHub Actions compile l'installeur et l'attache à la Release.
 
 ## Flux IA
 - iPad / navigateur : `POST /api/leads/{id}/drafts/cloud` (Gemini Pro, repli Flash sur 429/404/503)

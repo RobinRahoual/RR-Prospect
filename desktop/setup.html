@@ -3,43 +3,109 @@
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
-<title>RR Prospect — Configuration</title>
+<title>RR Prospect — Installation</title>
 <style>
-  body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0b0f;color:#eee;font:15px system-ui,sans-serif}
-  form{width:min(440px,90vw);display:grid;gap:14px}
-  h1{margin:0 0 4px;font-size:22px}
-  p{margin:0;color:#9a9aa5;font-size:13px}
-  label{display:grid;gap:6px;font-size:13px;color:#bbb}
-  input{padding:11px 12px;border-radius:8px;border:1px solid #2a2a35;background:#14141b;color:#fff;font-size:15px}
-  button{padding:12px;border:0;border-radius:8px;background:#e8ff59;color:#111;font-weight:600;font-size:15px;cursor:pointer}
-  #err{color:#ff7b7b;min-height:1.2em;font-size:13px}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:#0b0b0f;color:#eee;font:15px system-ui,sans-serif;display:grid;place-items:center;padding:24px}
+  main{width:min(720px,100%);display:grid;gap:18px}
+  h1{margin:0;font-size:24px}
+  p.lead{margin:0;color:#9a9aa5;font-size:13px;line-height:1.5}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:600px){.grid{grid-template-columns:1fr}}
+  label{display:grid;gap:6px;font-size:12px;color:#aaa}
+  input{padding:11px 12px;border-radius:8px;border:1px solid #2a2a35;background:#14141b;color:#fff;font-size:15px;width:100%}
+  .full{grid-column:1/-1}
+  button{padding:13px;border:0;border-radius:8px;background:#e8ff59;color:#111;font-weight:700;font-size:15px;cursor:pointer}
+  button:disabled{opacity:.5;cursor:default}
+  ol{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+  li{display:grid;grid-template-columns:28px 1fr;gap:8px;padding:10px 12px;border-radius:8px;background:#14141b;border:1px solid #1f1f29}
+  li .ic{font-size:16px;text-align:center}
+  li small{display:block;color:#8a8a95;margin-top:2px;white-space:pre-wrap;word-break:break-word}
+  li.ok{border-color:#2d5a3a} li.err{border-color:#7a2f2f} li.warn{border-color:#7a6a2f} li.run{border-color:#e8ff59}
+  #log{height:130px;overflow:auto;background:#07070a;border:1px solid #1f1f29;border-radius:8px;padding:10px;font:12px ui-monospace,Consolas,monospace;color:#8f8;white-space:pre-wrap}
+  .hide{display:none}
+  .note{font-size:12px;color:#8a8a95}
 </style>
 </head>
 <body>
-<form id="f">
-  <h1>RR Prospect</h1>
-  <p>Connexion à ton serveur. Tu pourras la modifier plus tard en supprimant le fichier config.json du dossier de l'application.</p>
-  <label>Adresse de la webapp (NAS)
-    <input id="url" placeholder="http://192.168.1.50:3000" required>
-  </label>
-  <label>Modèle Ollama local
-    <input id="model" placeholder="mistral-nemo">
-  </label>
-  <div id="err"></div>
-  <button>Enregistrer et ouvrir</button>
-</form>
+<main>
+  <div>
+    <h1>RR Prospect — installation</h1>
+    <p class="lead">Renseigne ces 4 informations : l'assistant installe l'IA locale sur ce PC, teste Gemini et configure le serveur sur ton NAS. Aucune commande à taper.</p>
+  </div>
+
+  <form id="f" class="grid">
+    <label>Adresse IP du NAS<input id="nasHost" placeholder="192.168.1.50" required></label>
+    <label>Utilisateur SSH du NAS<input id="sshUser" placeholder="robin" required></label>
+    <label>Mot de passe SSH<input id="sshPass" type="password" required></label>
+    <label>Modèle IA local<input id="model" placeholder="mistral-nemo"></label>
+    <label class="full">Clé API Gemini <span class="note">(aistudio.google.com/apikey)</span><input id="geminiKey" type="password" required></label>
+    <button class="full" id="go">Tout installer</button>
+    <p class="note full">Le mot de passe SSH sert uniquement à déployer le serveur et n'est jamais enregistré. La clé Gemini est stockée sur ton NAS (fichier .env protégé), pas sur ce PC.</p>
+  </form>
+
+  <ol id="steps" class="hide"></ol>
+  <div id="log" class="hide"></div>
+  <button id="retry" class="hide">Réessayer</button>
+</main>
+
 <script>
   const $ = (id) => document.getElementById(id);
-  window.rrSetup.get().then((c) => { $("url").value = c.appUrl || ""; $("model").value = c.ollamaModel || "mistral-nemo"; });
-  $("f").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    try {
-      await window.rrSetup.save({ appUrl: $("url").value.trim(), ollamaModel: $("model").value.trim() });
-      await window.rrSetup.done();
-    } catch (err) {
-      $("err").textContent = "Adresse invalide (ex. http://192.168.1.50:3000)";
+  const STEPS = [
+    { id: "ollama", label: "Installer Ollama (IA locale)", fatal: true },
+    { id: "model",  label: "Télécharger le modèle de rédaction", fatal: true },
+    { id: "gpu",    label: "Activer l'accélération GPU (RX 9070)", fatal: false },
+    { id: "gemini", label: "Vérifier la clé Gemini (Pro, repli Flash)", fatal: true },
+    { id: "nas",    label: "Installer le serveur sur le NAS", fatal: true },
+    { id: "finish", label: "Enregistrer la configuration", fatal: true },
+  ];
+  let params = {}, from = 0;
+
+  const render = () => {
+    $("steps").innerHTML = STEPS.map((s) =>
+      `<li id="s-${s.id}"><span class="ic">○</span><div>${s.label}<small></small></div></li>`).join("");
+  };
+  const mark = (id, cls, icon, text) => {
+    const li = $("s-" + id);
+    li.className = cls;
+    li.querySelector(".ic").textContent = icon;
+    if (text !== undefined) li.querySelector("small").textContent = text;
+  };
+  const log = (l) => { const el = $("log"); el.textContent += l + "\n"; el.scrollTop = el.scrollHeight; };
+  window.rrSetup.onLog(log);
+
+  window.rrSetup.get().then((c) => { $("model").value = c.ollamaModel || "mistral-nemo"; });
+
+  async function run() {
+    $("retry").classList.add("hide");
+    for (let i = from; i < STEPS.length; i++) {
+      const s = STEPS[i];
+      mark(s.id, "run", "⏳", "");
+      log(`— ${s.label}`);
+      const r = await window.rrSetup.step(s.id, params);
+      if (r.ok) {
+        mark(s.id, r.warn ? "warn" : "ok", r.warn ? "⚠" : "✓", [r.detail, r.warn].filter(Boolean).join("\n"));
+        continue;
+      }
+      mark(s.id, "err", "✗", [r.error, r.hint].filter(Boolean).join("\n"));
+      if (s.fatal) { from = i; $("retry").classList.remove("hide"); return; }
     }
+    log("Installation terminée.");
+    setTimeout(() => window.rrSetup.done(), 1200);
+  }
+
+  $("f").addEventListener("submit", (e) => {
+    e.preventDefault();
+    params = {
+      nasHost: $("nasHost").value, sshUser: $("sshUser").value, sshPass: $("sshPass").value,
+      model: $("model").value || "mistral-nemo", geminiKey: $("geminiKey").value,
+    };
+    $("go").disabled = true;
+    ["steps", "log"].forEach((id) => $(id).classList.remove("hide"));
+    render();
+    run();
   });
+  $("retry").addEventListener("click", run);
 </script>
 </body>
 </html>
