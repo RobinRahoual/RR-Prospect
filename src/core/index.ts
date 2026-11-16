@@ -25,3 +25,4 @@ export { scanSirene, itemToLead } from "./scan/sirene";
 export { scanOpenAgenda, eventToLead } from "./scan/openagenda";
 export { analyzeLead, extractSignals, scoreSite, pickEmail, isPublicHost, fetchSite } from "./scan/analyze";
 export type { SiteSignals } from "./scan/analyze";
+export * from "./mail/mailer";

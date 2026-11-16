@@ -2,6 +2,27 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { Api } from "../shared/ipc";
 
 const api: Api = {
+  mail: {
+    get: () => ipcRenderer.invoke("mail:get"),
+    set: (settings, pass) => ipcRenderer.invoke("mail:set", settings, pass),
+    test: () => ipcRenderer.invoke("mail:test"),
+    send: (id) => ipcRenderer.invoke("mail:send", id),
+    sendApproved: () => ipcRenderer.invoke("mail:sendApproved"),
+    cancel: () => ipcRenderer.invoke("mail:cancel"),
+    onProgress: (cb) => {
+      ipcRenderer.removeAllListeners("mail:progress");
+      ipcRenderer.on("mail:progress", (_e, p) => cb(p));
+    },
+  },
+  update: {
+    state: () => ipcRenderer.invoke("update:state"),
+    check: () => ipcRenderer.invoke("update:check"),
+    install: () => ipcRenderer.invoke("update:install"),
+    onState: (cb) => {
+      ipcRenderer.removeAllListeners("update:state");
+      ipcRenderer.on("update:state", (_e, s) => cb(s));
+    },
+  },
   config: {
     get: () => ipcRenderer.invoke("config:get"),
     setMode: (mode) => ipcRenderer.invoke("config:setMode", mode),
@@ -18,6 +39,8 @@ const api: Api = {
     list: () => ipcRenderer.invoke("leads:list"),
     create: (input) => ipcRenderer.invoke("leads:create", input),
     analyze: (id) => ipcRenderer.invoke("leads:analyze", id),
+    get: (id) => ipcRenderer.invoke("leads:get", id),
+    suppress: (id) => ipcRenderer.invoke("leads:suppress", id),
   },
   scan: {
     getSettings: () => ipcRenderer.invoke("scan:get"),

@@ -48,7 +48,9 @@ section{overflow:auto;padding:20px}
 .body p{margin:0 0 10px}
 .body a{color:#8ab4ff}
 
-.shell{display:grid;grid-template-rows:auto 1fr;height:100%}
+.shell{display:flex;flex-direction:column;height:100%}
+.shell-body{flex:1}
+.banner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 14px;background:#233a2c;color:var(--ok);border-bottom:1px solid #2d5a3a}
 .topnav{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 14px;border-bottom:1px solid var(--line);background:#0e0e14}
 .shell-body{min-height:0}
 .fill{height:100%}
@@ -86,3 +88,6 @@ button.ghost{min-height:28px;padding:0 8px;border:0;background:transparent;color
 label.check{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--text)}
 label.check input{width:auto}
 input[type=range]{padding:0}
+
+.sep{border:0;border-top:1px solid var(--line);width:100%;margin:8px 0}
+.settings a{color:#8ab4ff}

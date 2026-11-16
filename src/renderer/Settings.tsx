@@ -1,7 +1,111 @@
 import { useEffect, useState } from "react";
+import type { MailState } from "../shared/ipc";
 import { SCAN_CATEGORIES, type ScanSettings } from "../core/scan/settings";
 import type { ScanReport } from "../core/scan/osm";
 import { errMsg } from "./util";
+
+function MailSection() {
+  const [m, setM] = useState<MailState | null>(null);
+  const [pass, setPass] = useState("");
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [prog, setProg] = useState("");
+  const [running, setRunning] = useState(false);
+  const load = async () => setM(await window.api.mail.get());
+  useEffect(() => {
+    load();
+    window.api.mail.onProgress((p) =>
+      setProg(p.waitSec ? `Pause ${p.waitSec} s avant le prochain (${p.index}/${p.total})` : `${p.index}/${p.total} — ${p.lead} : ${p.result?.ok ? "envoyé" : p.result?.error}`)
+    );
+  }, []);
+  if (!m) return null;
+
+  async function batch() {
+    if (!window.confirm("Envoyer tous les brouillons validés, un par un avec une pause de 1,5 à 4 minutes entre chaque ? Garde l'app ouverte.")) return;
+    setRunning(true);
+    setErr("");
+    setProg("Démarrage…");
+    try {
+      const r = await window.api.mail.sendApproved();
+      setMsg(`Terminé : ${r.sent} envoyé(s), ${r.failed} échec(s)${r.stopped ? " — arrêté." : "."}`);
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setRunning(false);
+      setProg("");
+      load();
+    }
+  }
+  const set = (p: Partial<MailState["settings"]>) => setM({ ...m, settings: { ...m.settings, ...p } });
+
+  async function save() {
+    setErr("");
+    setMsg("");
+    try {
+      setM(await window.api.mail.set(m!.settings, pass));
+      setPass("");
+      setMsg("Enregistré.");
+      return true;
+    } catch (e) {
+      setErr(errMsg(e));
+      return false;
+    }
+  }
+  async function test() {
+    setBusy(true);
+    if (await save()) {
+      const r = await window.api.mail.test();
+      if (r.ok) setMsg(`Message de test envoyé à ${r.to}. Regarde ta boîte de réception.`);
+      else setErr(r.error);
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div className="stack">
+      <h2>Envoi par Gmail</h2>
+      <p className="muted small">
+        Les mails partent de ton adresse Gmail et apparaissent dans « Envoyés ». Il faut un <strong>mot de passe d'application</strong> (la validation en 2 étapes doit être activée sur ton compte Google) :{" "}
+        <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">créer un mot de passe d'application</a>.
+      </p>
+      <label>
+        Adresse Gmail
+        <input value={m.settings.address} onChange={(e) => set({ address: e.target.value })} placeholder="toi@gmail.com" />
+      </label>
+      <label>
+        Mot de passe d'application {m.hasPassword && <span className="muted small">(enregistré — laisse vide pour le garder)</span>}
+        <input type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="xxxx xxxx xxxx xxxx" />
+      </label>
+      <label>
+        Nom affiché
+        <input value={m.settings.fromName} onChange={(e) => set({ fromName: e.target.value })} />
+      </label>
+      <label>
+        Signature (ajoutée à chaque mail, avec la mention « STOP » de désinscription)
+        <textarea rows={3} value={m.settings.signature} onChange={(e) => set({ signature: e.target.value })} />
+      </label>
+      <label>
+        Plafond d'envois par jour : {m.settings.dailyCap}
+        <input type="range" min={1} max={40} value={m.settings.dailyCap} onChange={(e) => set({ dailyCap: Number(e.target.value) })} />
+        <span className="muted small">Aujourd'hui : {m.sentToday} / {m.cap}. Reste prudent : au-delà de ~30/jour, Gmail peut limiter ton compte.</span>
+      </label>
+      <div className="row">
+        <button onClick={save}>Enregistrer</button>
+        <button disabled={busy} onClick={test}>{busy ? "Envoi…" : "Envoyer un mail de test à moi-même"}</button>
+      </div>
+      <div className="row">
+        <button className="primary" disabled={running || !m.configured} onClick={batch}>
+          Envoyer tous les brouillons validés
+        </button>
+        {running && <button onClick={() => window.api.mail.cancel()}>Arrêter</button>}
+      </div>
+      {prog && <div className="muted small">{prog}</div>}
+      {msg && <div className="muted small">{msg}</div>}
+      {err && <div className="error">{err}</div>}
+    </div>
+  );
+}
 
 export function Settings({ onScanned }: { onScanned: () => void }) {
   const [s, setS] = useState<ScanSettings | null>(null);
@@ -162,6 +266,8 @@ export function Settings({ onScanned }: { onScanned: () => void }) {
           ))}
         </div>
       )}
+      <hr className="sep" />
+      <MailSection />
     </div>
   );
 }

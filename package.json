@@ -1,6 +1,6 @@
 {
   "name": "rr-prospect",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "RR Prospect — prospection automatisée pour vidéaste/photographe freelance (local d'abord)",
   "author": "Robin Rahoual",
   "license": "UNLICENSED",
@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/nodemailer": "^8.0.2",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@types/sql.js": "^1.4.9",
@@ -24,6 +25,7 @@
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
     "esbuild": "^0.24.0",
+    "nodemailer": "^10.6.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "sql.js": "^1.11.0",
@@ -35,9 +37,30 @@
   "build": {
     "appId": "fr.robinrahoual.rrprospect",
     "productName": "RR Prospect",
-    "directories": { "output": "release" },
-    "files": ["dist/**", "package.json"],
-    "win": { "target": "nsis", "artifactName": "RR-Prospect-Setup-${version}.${ext}" },
-    "nsis": { "oneClick": true, "perMachine": false, "createDesktopShortcut": true, "runAfterFinish": true }
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "artifactName": "RR-Prospect-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "runAfterFinish": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "RobinRahoual",
+      "repo": "RR-Prospect"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   }
 }

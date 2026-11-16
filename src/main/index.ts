@@ -3,10 +3,12 @@ import dns from "node:dns/promises";
 import path from "node:path";
 import {
   buildPrompt, buildSystem, Database, executeTool, GeminiChat, GeminiEngine, gpuCheck, HintError, LLMRouter, OllamaChat,
-  OllamaEngine, pullModel, geocode, normalizeScan, runScan, analyzeLead, isPublicHost, Repo, runAgent, TOOLS, testGeminiKey, trimHistory,
+  OllamaEngine, pullModel, geocode, normalizeScan, runScan, analyzeLead, isPublicHost, mailStatus, normalizeMail, sendBatch, sendDraft, isEmail, buildMessage, Repo, runAgent, TOOLS, testGeminiKey, trimHistory,
   type DraftStatus, type LeadInput, type Mode,
 } from "../core";
 import type { SetupParams, SetupStep, StepResult } from "../shared/ipc";
+import { checkNow, initUpdater, installNow, updateState } from "./updater";
+import { gmailTransport } from "./mail";
 import { ConfigStore } from "./config";
 import { enableVulkan, ensureRunning, installOllama, resolveBin } from "./ollama-setup";
 
@@ -95,6 +97,20 @@ async function runStep(name: SetupStep, p: SetupParams, log: (l: string) => void
       return { ok: true, detail: `Pro : ${r.pro}${r.flash ? ` · repli ${r.flash}` : ""}` };
     }
   }
+}
+
+let stopBatch = false;
+let batchRunning = false;
+
+function mailState() {
+  const settings = cfg.mail;
+  const st = mailStatus(repo, settings);
+  return { settings, hasPassword: !!cfg.getMailPass(), ...st };
+}
+function transport() {
+  const pass = cfg.getMailPass();
+  if (!pass || !cfg.mail.address) throw new Error("Configure ton adresse Gmail et ton mot de passe d'application dans Réglages");
+  return gmailTransport(cfg.mail.address, pass);
 }
 
 /** Résout le nom d'hôte et refuse les adresses privées (anti-SSRF : l'URL d'un site vient de données externes). */
@@ -188,6 +204,54 @@ function registerIpc() {
     return { lead: r.lead, note: r.note };
   });
 
+  handle("mail:get", () => mailState());
+  handle("mail:set", (_e, patch: Partial<import("../core").MailSettings>, pass?: string) => {
+    cfg.set({ mail: normalizeMail(patch, cfg.mail) });
+    if (typeof pass === "string" && pass.trim()) cfg.setMailPass(pass.trim());
+    return mailState();
+  });
+  handle("mail:test", async () => {
+    const s = cfg.mail;
+    if (!isEmail(s.address)) return { ok: false, error: "Renseigne ton adresse Gmail" };
+    try {
+      const m = buildMessage(s, s.address, "Test RR Prospect", "<p>Ceci est un message de test envoyé par RR Prospect. Si tu le lis, l'envoi fonctionne.</p>");
+      const r = await transport().send(m);
+      return { ok: true, to: s.address, messageId: r.messageId };
+    } catch (e) {
+      const { friendlyMailError } = await import("../core");
+      return { ok: false, error: friendlyMailError((e as Error).message) };
+    }
+  });
+  handle("mail:send", async (_e, draftId: string) => sendDraft(repo, transport(), cfg.mail, String(draftId)));
+  handle("mail:sendApproved", async (e) => {
+    if (batchRunning) throw new Error("Un envoi groupé est déjà en cours");
+    batchRunning = true;
+    stopBatch = false;
+    try {
+      return await sendBatch(repo, transport(), cfg.mail, {
+        shouldStop: () => stopBatch,
+        onProgress: (p) => e.sender.send("mail:progress", p),
+      });
+    } finally {
+      batchRunning = false;
+    }
+  });
+  handle("mail:cancel", () => {
+    stopBatch = true;
+  });
+  handle("leads:get", (_e, id: string) => repo.getLead(String(id)));
+  handle("leads:suppress", (_e, id: string) => {
+    const l = repo.getLead(String(id));
+    if (!l) return null;
+    if (l.email) repo.addSuppression(l.email, "ne pas contacter (manuel)");
+    repo.setLeadStatus(l.id, "skipped");
+    return repo.getLead(l.id);
+  });
+
+  handle("update:state", () => updateState());
+  handle("update:check", () => checkNow());
+  handle("update:install", () => installNow());
+
   handle("chat:list", () => repo.listConversations());
   handle("chat:create", () => repo.createConversation());
   handle("chat:messages", (_e, id: string) => repo.getMessages(id));
@@ -225,6 +289,7 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, "../renderer/index.html"));
+  win.webContents.once("did-finish-load", () => initUpdater(win.webContents));
 
   // Les liens http(s) s'ouvrent dans le navigateur par défaut, jamais dans l'app
   const external = (url: string) => /^(https?:|mailto:)/i.test(url) && shell.openExternal(url);

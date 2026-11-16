@@ -1,4 +1,4 @@
-// Bundle main + preload en un fichier chacun (toutes les dépendances embarquées, seul "electron" reste externe)
+// Bundle main + preload en un fichier chacun (toutes les dépendances embarquées, "electron" et "electron-updater" restent externes)
 import { build } from "esbuild";
 import fs from "node:fs";
 
@@ -7,7 +7,7 @@ const common = {
   platform: "node",
   format: "cjs",
   target: "node20",
-  external: ["electron"],
+  external: ["electron", "electron-updater"],
   logLevel: "info",
 };
 

@@ -29,12 +29,13 @@ npm run dist        # installeur dans release/
 ```
 Structure : `src/core` (moteur pur, réutilisé plus tard par la webapp et le Worker), `src/main` (Electron), `src/preload`, `src/renderer` (React), `src/shared` (contrat IPC).
 
-Publier une version : créer une Release GitHub avec un tag `v*` → le workflow compile et attache l'`.exe`.
+Publier une version : créer une Release GitHub avec un tag `v*` → le workflow fixe la version d'après le tag, compile et attache l'`.exe`, `latest.yml` et `.blockmap`. Les apps installées se mettent à jour toutes seules (téléchargement en arrière-plan, installation à la fermeture ou au clic).
 
 ## Feuille de route
 1. ✅ Moteur + app locale + assistant + génération de brouillons
 1b. ✅ Interface chat : assistant spécialisé prospection (playbook, profil, exemples validés par toi) qui lit/crée tes leads et rédige les brouillons via des outils ; il n'envoie jamais rien
 2. ✅ Scan gratuit OpenStreetMap (zone, rayon, catégories réglables dans Réglages). + SIRENE (entreprises récentes), OpenAgenda (événements, clé gratuite) et analyse de site (mobile, images, vidéo, mise à jour, réseaux, email). Google Places en option avec quota dur : à venir
-3. Envoi Gmail (OAuth sur le PC), liste de suppression, plafond quotidien
+3. ✅ Envoi Gmail (SMTP + mot de passe d'application), validation obligatoire, plafond/jour, mention STOP + liste de suppression, envoi groupé espacé
+3b. ✅ Mises à jour automatiques depuis les Releases GitHub (dépôt public requis)
 4. Firebase : synchronisation PC ⇄ iPad dans les deux sens + webapp
 5. Worker Cloudflare : pixel d'ouverture, clics, proxy Gemini pour l'iPad

@@ -91,6 +91,11 @@ export class Repo {
         tool_calls TEXT, tool_call_id TEXT, tool_name TEXT, raw TEXT, cards TEXT, engine TEXT,
         seq INTEGER NOT NULL, created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS sends (
+        id TEXT PRIMARY KEY, draft_id TEXT NOT NULL, lead_id TEXT NOT NULL, to_email TEXT NOT NULL,
+        subject TEXT NOT NULL, message_id TEXT, status TEXT NOT NULL, error TEXT, sent_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_sends_at ON sends(sent_at);
       CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, seq);
     `);
     this.addColumn("leads", "analyzed_at", "TEXT");
@@ -205,6 +210,18 @@ export class Repo {
 
   isSuppressed(email: string): boolean {
     return this.db.all("SELECT 1 FROM suppression WHERE email = ?", [email.trim().toLowerCase()]).length > 0;
+  }
+
+  // ---- Envois ----
+  recordSend(r: { draftId: string; leadId: string; to: string; subject: string; messageId: string | null; status: "sent" | "failed"; error?: string }): void {
+    this.db.run(
+      "INSERT INTO sends (id, draft_id, lead_id, to_email, subject, message_id, status, error, sent_at) VALUES (?,?,?,?,?,?,?,?,?)",
+      [randomUUID(), r.draftId, r.leadId, r.to, r.subject, r.messageId, r.status, r.error ?? null, now()]
+    );
+  }
+
+  countSentSince(iso: string): number {
+    return Number(this.db.all<Row>("SELECT COUNT(*) AS n FROM sends WHERE status = 'sent' AND sent_at >= ?", [iso])[0]?.n ?? 0);
   }
 
   // ---- Chat ----

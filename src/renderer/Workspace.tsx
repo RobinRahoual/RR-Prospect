@@ -172,6 +172,18 @@ function LeadView({ lead, cfg, onCfg, onChanged }: { lead: Lead; cfg: AppConfig;
             </button>
           ))}
         </div>
+        <button
+          disabled={busy}
+          title="Marque le lead comme à ne pas contacter et bloque son email"
+          onClick={async () => {
+            if (window.confirm("Ne plus jamais contacter ce lead ?")) {
+              await window.api.leads.suppress(lead.id);
+              onChanged();
+            }
+          }}
+        >
+          Ne pas contacter
+        </button>
         <button disabled={busy} onClick={analyze} title="Visite le site et mesure sa présence visuelle">
           {lead.analyzedAt ? "Ré-analyser le site" : "Analyser le site"}
         </button>
@@ -192,6 +204,26 @@ export function DraftEditor({ draft, onSaved }: { draft: Draft; onSaved: () => v
   const [subject, setSubject] = useState(draft.subject);
   const body = useRef<HTMLDivElement>(null);
   const [msg, setMsg] = useState("");
+  const [to, setTo] = useState<string | null | undefined>(undefined);
+  const [confirm, setConfirm] = useState(false);
+  const [sendErr, setSendErr] = useState("");
+  useEffect(() => {
+    window.api.leads.get(draft.leadId).then((l) => setTo(l?.email ?? null));
+  }, [draft.leadId]);
+
+  async function send() {
+    setSendErr("");
+    try {
+      await window.api.drafts.update(draft.id, { subject, bodyHtml: currentHtml(), status: "approved" });
+      const r = await window.api.mail.send(draft.id);
+      if (!r.ok) setSendErr(r.error);
+      setConfirm(false);
+      onSaved();
+    } catch (e) {
+      setSendErr(errMsg(e));
+      setConfirm(false);
+    }
+  }
 
   const currentHtml = () => sanitizeHtml(body.current?.innerHTML ?? draft.bodyHtml);
 
@@ -227,7 +259,20 @@ export function DraftEditor({ draft, onSaved }: { draft: Draft; onSaved: () => v
         <button className="primary" onClick={() => save("approved")}>
           Valider
         </button>
+        {draft.status !== "sent" &&
+          (confirm ? (
+            <>
+              <button className="primary" onClick={send}>Confirmer l'envoi à {to}</button>
+              <button onClick={() => setConfirm(false)}>Annuler</button>
+            </>
+          ) : (
+            <button disabled={!to} title={to ? "" : "Ce lead n'a pas d'email"} onClick={() => setConfirm(true)}>
+              {to ? "Envoyer" : "Pas d'email"}
+            </button>
+          ))}
       </div>
+      {to && draft.status !== "sent" && <div className="muted small">Destinataire : {to}</div>}
+      {sendErr && <div className="error">{sendErr}</div>}
     </article>
   );
 }

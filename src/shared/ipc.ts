@@ -1,5 +1,6 @@
 import type { ChatMessage } from "../core/chat/types";
 import type { Conversation } from "../core/repo";
+import type { BatchProgress, MailSettings, SendResult } from "../core/mail/mailer";
 import type { GeoResult, ScanReport } from "../core/scan/osm";
 import type { ScanSettings } from "../core/scan/settings";
 import type { Draft, DraftStatus, Lead, LeadInput, Mode } from "../core/types";
@@ -27,7 +28,35 @@ export interface StepResult {
 }
 
 /** Contrat entre l'interface (renderer) et le processus principal. Exposé en `window.api`. */
+export type UpdateState =
+  | { state: "idle" | "checking" | "uptodate" | "unavailable"; version: string }
+  | { state: "downloading"; version: string; percent: number }
+  | { state: "ready"; version: string; next: string };
+
+export interface MailState {
+  settings: MailSettings;
+  hasPassword: boolean;
+  configured: boolean;
+  sentToday: number;
+  cap: number;
+}
+
 export interface Api {
+  mail: {
+    get(): Promise<MailState>;
+    set(settings: Partial<MailSettings>, appPassword?: string): Promise<MailState>;
+    test(): Promise<SendResult>;
+    send(draftId: string): Promise<SendResult>;
+    sendApproved(): Promise<{ sent: number; failed: number; stopped: boolean }>;
+    cancel(): Promise<void>;
+    onProgress(cb: (p: BatchProgress) => void): void;
+  };
+  update: {
+    state(): Promise<UpdateState>;
+    check(): Promise<void>;
+    install(): Promise<void>;
+    onState(cb: (s: UpdateState) => void): void;
+  };
   config: {
     get(): Promise<AppConfig>;
     setMode(mode: Mode): Promise<void>;
@@ -41,6 +70,8 @@ export interface Api {
     list(): Promise<Lead[]>;
     create(input: LeadInput): Promise<Lead>;
     analyze(id: string): Promise<{ lead: Lead; note?: string }>;
+    get(id: string): Promise<Lead | null>;
+    suppress(id: string): Promise<Lead | null>;
   };
   scan: {
     getSettings(): Promise<ScanSettings>;
