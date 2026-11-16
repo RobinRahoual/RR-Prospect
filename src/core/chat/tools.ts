@@ -106,8 +106,9 @@ export const TOOLS: ToolSpec[] = [
 
 export interface ToolDeps {
   repo: Repo;
-  scan?: (overrides: Partial<ScanSettings>) => Promise<ScanReport & { settings: ScanSettings }>;
-  analyze?: (lead: Lead) => Promise<{ lead: Lead; signals: unknown; note?: string }>;
+  /** Sur le PC : le scan se fait tout de suite. Sur l'iPad : il est confié au PC (`queued` explique la suite). */
+  scan?: (overrides: Partial<ScanSettings>) => Promise<(ScanReport & { settings: ScanSettings }) | { queued: string }>;
+  analyze?: (lead: Lead) => Promise<{ lead: Lead; signals: unknown; note?: string } | { queued: string }>;
   generateDraft: (lead: Lead, instructions?: string) => Promise<{ draft: DraftOut; engine: string }>;
 }
 
@@ -181,6 +182,7 @@ export async function executeTool(deps: ToolDeps, call: ToolCall): Promise<ToolO
       if (!deps.scan) throw new Error("Le scan n'est pas disponible");
       const cats = Array.isArray(a.categories) ? a.categories.filter((x): x is string => typeof x === "string") : undefined;
       const r = await deps.scan({ ...(cats?.length ? { categories: cats } : {}), ...(Number(a.radius_km) ? { radiusKm: Number(a.radius_km) } : {}) });
+      if ("queued" in r) return { result: { message: r.queued } };
       const top = repo.listLeads("new").slice(0, 5);
       return {
         result: { zone: r.settings.placeLabel, rayonKm: r.settings.radiusKm, trouvés: r.found, ajoutés: r.added, déjàPrésents: r.duplicates, source: r.source, meilleurs: top.map(brief) },
@@ -196,6 +198,10 @@ export async function executeTool(deps: ToolDeps, call: ToolCall): Promise<ToolO
       const out = [];
       for (const l of targets) {
         const r = await deps.analyze(l);
+        if ("queued" in r) {
+          out.push({ lead: l.name, note: r.queued });
+          continue;
+        }
         out.push({ ...brief(r.lead), score: r.lead.gapScore, raisons: r.lead.gapReasons, email: r.lead.email, note: r.note });
       }
       return { result: { analysés: out }, cards: [leadsCard(targets.map((l) => repo.getLead(l.id)!))] };

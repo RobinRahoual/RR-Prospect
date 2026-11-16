@@ -69,6 +69,11 @@ export interface SyncState {
 
 /** Fonctions propres à l'app web (iPad) */
 export interface WebApi {
+  jobs: {
+    /** Confie une tâche au PC (il l'exécute dès qu'il est allumé) */
+    enqueue(kind: import("../core/repo").JobKind, params?: Record<string, unknown>): Promise<import("../core/repo").Job>;
+    list(): Promise<import("../core/repo").Job[]>;
+  };
   getKeys(): Promise<{ hasGemini: boolean; geminiModel: string | null }>;
   setGeminiKey(key: string): Promise<{ hasGemini: boolean; geminiModel: string | null; warn?: string }>;
   signOut(): Promise<void>;

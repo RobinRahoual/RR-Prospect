@@ -57,7 +57,7 @@ export function Shell({ cfg, onCfg }: { cfg: AppConfig; onCfg: (c: AppConfig) =>
       <div className="shell-body">
         {/* Les deux vues restent montées : on garde la conversation en cours quand on change d'onglet */}
         <div hidden={tab !== "chat"} className="fill">
-          <Chat cfg={cfg} onCfg={onCfg} />
+          <Chat cfg={cfg} onCfg={onCfg} reloadKey={reload} />
         </div>
         <div hidden={tab !== "leads"} className="fill">
           <Workspace cfg={cfg} onCfg={onCfg} reloadKey={reload} />

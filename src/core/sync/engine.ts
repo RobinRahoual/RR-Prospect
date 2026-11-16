@@ -1,9 +1,15 @@
-import type { Repo } from "../repo";
+import type { Repo, SyncTbl } from "../repo";
 import type { Remote } from "./firestore";
 
 type Row = Record<string, unknown>;
-type Tbl = "leads" | "drafts" | "suppression";
-const TABLES: Tbl[] = ["suppression", "leads", "drafts"]; // dans cet ordre : les leads existent avant leurs brouillons
+export type Tbl = SyncTbl;
+/** Dans cet ordre : les leads existent avant leurs brouillons, les conversations avant leurs messages */
+export const ALL_TABLES: Tbl[] = ["suppression", "leads", "drafts", "conversations", "messages", "jobs"];
+/** Lignes qui ne changent jamais une fois écrites : la première version fait foi */
+const IMMUTABLE: Tbl[] = ["suppression", "messages"];
+const MAX_DOC = 900_000; // Firestore refuse un document de plus de 1 Mo : on ne pousse pas les messages démesurés
+const JOB_RANK: Record<string, number> = { pending: 0, running: 1, done: 2, error: 2 };
+const eq = (a: Row, b: Row) => Object.keys(a).every((k) => a[k] === b[k]);
 const LEAD_RANK: Record<string, number> = { new: 0, drafted: 1, skipped: 1, sent: 2, replied: 3 };
 const DRAFT_RANK: Record<string, number> = { draft: 0, approved: 1, sent: 2 };
 const now = () => new Date().toISOString();
@@ -13,7 +19,19 @@ const now = () => new Date().toISOString();
  * ne peut jamais être écrasé par une copie plus ancienne (sinon l'iPad pourrait faire renvoyer un mail déjà parti).
  */
 export function mergeRows(tbl: Tbl, local: Row, remote: Row): { row: Row; changedVsRemote: boolean } {
-  if (tbl === "suppression") return { row: local, changedVsRemote: false };
+  if (IMMUTABLE.includes(tbl)) return { row: local, changedVsRemote: false };
+  if (tbl === "jobs") {
+    // Une commande ne fait qu'avancer (en attente → en cours → terminée) : l'état le plus avancé gagne
+    const a = JOB_RANK[String(local.status)] ?? 0;
+    const b = JOB_RANK[String(remote.status)] ?? 0;
+    const win = a !== b ? (a > b ? local : remote) : String(remote.updated_at) > String(local.updated_at) ? remote : local;
+    return { row: { ...win }, changedVsRemote: !eq(win, remote) };
+  }
+  if (tbl === "conversations") {
+    const win = String(remote.updated_at) > String(local.updated_at) ? remote : local;
+    const row = { ...win, deleted: Number(local.deleted) || Number(remote.deleted) ? 1 : 0 }; // une suppression est définitive
+    return { row, changedVsRemote: !eq(row, remote) };
+  }
   const lu = String(local.updated_at);
   const ru = String(remote.updated_at);
   const win = ru > lu ? remote : local;
@@ -36,11 +54,11 @@ export interface SyncReport {
 }
 
 /** Synchronisation bidirectionnelle (tirer puis pousser). Idempotente : on peut la relancer à tout moment. */
-export async function syncOnce(repo: Repo, remote: Remote): Promise<SyncReport> {
+export async function syncOnce(repo: Repo, remote: Remote, tables: Tbl[] = ALL_TABLES): Promise<SyncReport> {
   const rep: SyncReport = { pulled: 0, pushed: 0 };
 
   // 1) Tirer
-  for (const tbl of TABLES) {
+  for (const tbl of tables) {
     const stateKey = `pull:${tbl}`;
     let since = repo.getSyncState(stateKey);
     for (let page = 0; page < 50; page++) {
@@ -54,18 +72,24 @@ export async function syncOnce(repo: Repo, remote: Remote): Promise<SyncReport> 
         }
         const key = tbl === "suppression" ? "email" : "id";
         const local = repo.getRow(tbl, d.id);
-        if (!local) {
-          if (repo.putRow(tbl, { ...remoteRow, [key]: d.id })) rep.pulled++;
+        if (tbl === "messages") {
+          // Un message n'est gardé que si sa conversation existe ici et n'a pas été supprimée
+          const conv = repo.getRow("conversations", String(remoteRow.conversation_id));
+          if (!local && conv && !conv.deleted && repo.putRow(tbl, { ...remoteRow, [key]: d.id })) rep.pulled++;
           repo.markSynced(tbl, d.id, d.u);
-        } else if (tbl !== "suppression") {
+        } else if (!local) {
+          if (repo.putRow(tbl, { ...remoteRow, [key]: d.id })) rep.pulled++;
+          if (tbl === "conversations" && remoteRow.deleted) repo.purgeMessages(d.id);
+          repo.markSynced(tbl, d.id, d.u);
+        } else if (!IMMUTABLE.includes(tbl)) {
           const { row } = mergeRows(tbl, local, remoteRow);
-          const same = row.updated_at === local.updated_at && row.status === local.status;
-          if (!same) {
+          if (!eq(row, local)) {
             repo.putRow(tbl, row);
             rep.pulled++;
+            if (tbl === "conversations" && row.deleted) repo.purgeMessages(d.id);
           }
           // Si la fusion a gardé / modifié notre version, elle sera repoussée (updated_at ≠ meta) ; sinon elle est à jour
-          if (row.updated_at === remoteRow.updated_at && row.status === remoteRow.status) repo.markSynced(tbl, d.id, d.u);
+          if (eq(row, remoteRow)) repo.markSynced(tbl, d.id, d.u);
         } else {
           repo.markSynced(tbl, d.id, d.u);
         }
@@ -77,11 +101,12 @@ export async function syncOnce(repo: Repo, remote: Remote): Promise<SyncReport> 
   }
 
   // 2) Pousser
-  for (const tbl of TABLES) {
+  for (const tbl of tables) {
     for (;;) {
       const dirty = repo.dirtyRows(tbl, 200);
       if (!dirty.length) break;
-      await remote.commit(dirty.map((d) => ({ col: tbl, id: d.id, u: d.u, j: JSON.stringify(d.row) })));
+      const writes = dirty.map((d) => ({ col: tbl, id: d.id, u: d.u, j: JSON.stringify(d.row) }));
+      await remote.commit(writes.filter((w) => w.j.length <= MAX_DOC));
       for (const d of dirty) repo.markSynced(tbl, d.id, d.u);
       rep.pushed += dirty.length;
     }

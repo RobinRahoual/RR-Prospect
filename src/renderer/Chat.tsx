@@ -30,7 +30,7 @@ const TOOL_LABEL: Record<string, string> = {
   set_lead_status: "Changement de statut",
 };
 
-export function Chat({ cfg, onCfg }: { cfg: AppConfig; onCfg: (c: AppConfig) => void }) {
+export function Chat({ cfg, onCfg, reloadKey = 0 }: { cfg: AppConfig; onCfg: (c: AppConfig) => void; reloadKey?: number }) {
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [cur, setCur] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<ChatMessage[]>([]);
@@ -40,6 +40,8 @@ export function Chat({ cfg, onCfg }: { cfg: AppConfig; onCfg: (c: AppConfig) => 
   const curRef = useRef<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
   curRef.current = cur;
+  const busyRef = useRef(false);
+  busyRef.current = busy;
 
   const loadConvs = async () => setConvs(await window.api.chat.list());
 
@@ -49,6 +51,13 @@ export function Chat({ cfg, onCfg }: { cfg: AppConfig; onCfg: (c: AppConfig) => 
       if (m.conversationId === curRef.current) setMsgs((x) => (x.some((y) => y.id === m.id) ? x : [...x, m]));
     });
   }, []);
+  // La synchro a pu apporter des conversations ou des messages de l'autre appareil
+  useEffect(() => {
+    if (!reloadKey) return;
+    void loadConvs();
+    const id = curRef.current;
+    if (id && !busyRef.current) void window.api.chat.messages(id).then((m) => curRef.current === id && setMsgs((old) => (m.length > old.length ? m : old)));
+  }, [reloadKey]);
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end" });
   }, [msgs, busy]);

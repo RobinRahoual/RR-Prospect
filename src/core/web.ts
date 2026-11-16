@@ -13,5 +13,8 @@ export { runAgent, trimHistory } from "./chat/agent";
 export { TOOLS, executeTool } from "./chat/tools";
 export { buildSystem } from "./chat/prompts";
 export { DEFAULT_SCAN } from "./scan/settings";
+export { enqueueJob, processJobs, JOB_TTL_MS } from "./jobs";
+export type { JobRunners } from "./jobs";
+export type { Job, JobKind, JobStatus } from "./repo";
 export { syncOnce } from "./sync/engine";
 export { FirebaseAuth, FirestoreRemote, FIRESTORE_RULES } from "./sync/firestore";

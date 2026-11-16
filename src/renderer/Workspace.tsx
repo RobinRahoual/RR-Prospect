@@ -116,6 +116,7 @@ function LeadView({ lead, cfg, onCfg, onChanged }: { lead: Lead; cfg: AppConfig;
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [info, setInfo] = useState("");
 
   const load = async () => setDrafts(await window.api.drafts.list(lead.id));
   useEffect(() => {
@@ -130,9 +131,10 @@ function LeadView({ lead, cfg, onCfg, onChanged }: { lead: Lead; cfg: AppConfig;
   async function analyze() {
     setBusy(true);
     setErr("");
+    setInfo("");
     try {
       const r = await window.api.leads.analyze(lead.id);
-      if (r.note) setErr(r.note);
+      if (r.note) (window.api.web ? setInfo : setErr)(r.note);
       onChanged();
     } catch (e) {
       setErr(errMsg(e));
@@ -189,13 +191,14 @@ function LeadView({ lead, cfg, onCfg, onChanged }: { lead: Lead; cfg: AppConfig;
         >
           Ne pas contacter
         </button>
-        {!window.api.web && <button disabled={busy} onClick={analyze} title="Visite le site et mesure sa présence visuelle">
-          {lead.analyzedAt ? "Ré-analyser le site" : "Analyser le site"}
-        </button>}
+        <button disabled={busy} onClick={analyze} title="Visite le site et mesure sa présence visuelle">
+          {lead.analyzedAt ? "Ré-analyser le site" : "Analyser le site"}{window.api.web ? " (via le PC)" : ""}
+        </button>
         <button className="primary" disabled={busy} onClick={generate}>
           {busy ? "Génération…" : "Générer un brouillon"}
         </button>
       </div>
+      {info && <div className="muted small">{info}</div>}
       {err && <div className="error">{err}</div>}
 
       {drafts.map((d) => (
@@ -212,16 +215,19 @@ export function DraftEditor({ draft, onSaved }: { draft: Draft; onSaved: () => v
   const [to, setTo] = useState<string | null | undefined>(undefined);
   const [confirm, setConfirm] = useState(false);
   const [sendErr, setSendErr] = useState("");
+  const [sendInfo, setSendInfo] = useState("");
   useEffect(() => {
     window.api.leads.get(draft.leadId).then((l) => setTo(l?.email ?? null));
   }, [draft.leadId]);
 
   async function send() {
     setSendErr("");
+    setSendInfo("");
     try {
       await window.api.drafts.update(draft.id, { subject, bodyHtml: currentHtml(), status: "approved" });
       const r = await window.api.mail.send(draft.id);
       if (!r.ok) setSendErr(r.error);
+      else if (window.api.web) setSendInfo("Envoi demandé au PC : il partira dès que le PC est allumé (dans les 12 h), avec le plafond du jour et la liste de désinscrits.");
       setConfirm(false);
       onSaved();
     } catch (e) {
@@ -264,7 +270,7 @@ export function DraftEditor({ draft, onSaved }: { draft: Draft; onSaved: () => v
         <button className="primary" onClick={() => save("approved")}>
           Valider
         </button>
-        {draft.status !== "sent" && !window.api.web &&
+        {draft.status !== "sent" &&
           (confirm ? (
             <>
               <button className="primary" onClick={send}>Confirmer l'envoi à {to}</button>
@@ -276,7 +282,8 @@ export function DraftEditor({ draft, onSaved }: { draft: Draft; onSaved: () => v
             </button>
           ))}
       </div>
-      {to && draft.status !== "sent" && <div className="muted small">Destinataire : {to}{window.api.web ? " — l'envoi se fait depuis le PC une fois le brouillon validé." : ""}</div>}
+      {to && draft.status !== "sent" && <div className="muted small">Destinataire : {to}{window.api.web ? " — l'envoi est exécuté par le PC." : ""}</div>}
+      {sendInfo && <div className="muted small">{sendInfo}</div>}
       {sendErr && <div className="error">{sendErr}</div>}
     </article>
   );

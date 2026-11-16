@@ -59,6 +59,20 @@ function toDraft(r: Row): Draft {
   };
 }
 
+export type JobKind = "scan" | "analyze" | "send" | "send_approved";
+export type JobStatus = "pending" | "running" | "done" | "error";
+export interface Job {
+  id: string;
+  kind: JobKind;
+  params: Record<string, unknown>;
+  status: JobStatus;
+  result: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type SyncTbl = "leads" | "drafts" | "suppression" | "conversations" | "messages" | "jobs";
+
 export class Repo {
   constructor(private db: Database) {}
 
@@ -91,6 +105,10 @@ export class Repo {
         tool_calls TEXT, tool_call_id TEXT, tool_name TEXT, raw TEXT, cards TEXT, engine TEXT,
         seq INTEGER NOT NULL, created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS jobs (
+        id TEXT PRIMARY KEY, kind TEXT NOT NULL, params TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL DEFAULT 'pending',
+        result TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS sends (
         id TEXT PRIMARY KEY, draft_id TEXT NOT NULL, lead_id TEXT NOT NULL, to_email TEXT NOT NULL,
         subject TEXT NOT NULL, message_id TEXT, status TEXT NOT NULL, error TEXT, sent_at TEXT NOT NULL
@@ -107,6 +125,7 @@ export class Repo {
       CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, seq);
     `);
     this.addColumn("leads", "analyzed_at", "TEXT");
+    this.addColumn("conversations", "deleted", "INTEGER NOT NULL DEFAULT 0");
     this.addColumn("sends", "track_id", "TEXT");
     this.addColumn("sends", "opens", "INTEGER DEFAULT 0");
     this.addColumn("sends", "first_open_at", "TEXT");
@@ -313,9 +332,9 @@ export class Repo {
   }
 
   /** Lignes modifiées depuis leur dernière synchronisation (jamais vues, ou changées depuis) */
-  dirtyRows(tbl: "leads" | "drafts" | "suppression", limit = 200): { id: string; u: string; row: Row }[] {
+  dirtyRows(tbl: SyncTbl, limit = 200): { id: string; u: string; row: Row }[] {
     const key = tbl === "suppression" ? "email" : "id";
-    const ucol = tbl === "suppression" ? "created_at" : "updated_at";
+    const ucol = tbl === "suppression" || tbl === "messages" ? "created_at" : "updated_at";
     return this.db
       .all<Row>(
         `SELECT t.* FROM ${tbl} t LEFT JOIN sync_meta m ON m.tbl = ? AND m.id = t.${key}
@@ -329,13 +348,13 @@ export class Repo {
     this.db.run("INSERT OR REPLACE INTO sync_meta (tbl, id, u) VALUES (?,?,?)", [tbl, id, u]);
   }
 
-  getRow(tbl: "leads" | "drafts" | "suppression", id: string): Row | null {
+  getRow(tbl: SyncTbl, id: string): Row | null {
     const key = tbl === "suppression" ? "email" : "id";
     return this.db.all<Row>(`SELECT * FROM ${tbl} WHERE ${key} = ?`, [id])[0] ?? null;
   }
 
   /** Insère ou met à jour une ligne brute (colonnes inconnues ignorées). Retourne false si refusée (doublon de fiche Google). */
-  putRow(tbl: "leads" | "drafts" | "suppression", row: Row): boolean {
+  putRow(tbl: SyncTbl, row: Row): boolean {
     const key = tbl === "suppression" ? "email" : "id";
     const cols = this.db.all<Row>(`PRAGMA table_info(${tbl})`).map((c) => String(c.name));
     const keys = Object.keys(row).filter((k) => cols.includes(k));
@@ -352,6 +371,42 @@ export class Repo {
     return true;
   }
 
+  // ---- Commandes iPad → PC (voir jobs.ts) ----
+  private rowToJob(r: Row): Job {
+    let params: Record<string, unknown> = {};
+    try {
+      params = JSON.parse(String(r.params ?? "{}")) as Record<string, unknown>;
+    } catch {
+      /* paramètres illisibles : ignorés */
+    }
+    return { id: String(r.id), kind: r.kind as JobKind, params, status: r.status as JobStatus, result: (r.result as string) ?? null, createdAt: String(r.created_at), updatedAt: String(r.updated_at) };
+  }
+
+  createJob(kind: JobKind, params: Record<string, unknown> = {}): Job {
+    const t = now();
+    const id = randomUUID();
+    this.db.run("INSERT INTO jobs (id, kind, params, status, created_at, updated_at) VALUES (?,?,?,?,?,?)", [id, kind, JSON.stringify(params), "pending", t, t]);
+    return this.getJob(id)!;
+  }
+
+  getJob(id: string): Job | null {
+    const r = this.db.all<Row>("SELECT * FROM jobs WHERE id = ?", [id])[0];
+    return r ? this.rowToJob(r) : null;
+  }
+
+  listJobs(limit = 20): Job[] {
+    return this.db.all<Row>("SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", [limit]).map((r) => this.rowToJob(r));
+  }
+
+  /** Commandes à traiter ou en cours, les plus anciennes d'abord */
+  openJobs(): Job[] {
+    return this.db.all<Row>("SELECT * FROM jobs WHERE status IN ('pending','running') ORDER BY created_at").map((r) => this.rowToJob(r));
+  }
+
+  setJobStatus(id: string, status: JobStatus, result?: string): void {
+    this.db.run("UPDATE jobs SET status = ?, result = COALESCE(?, result), updated_at = ? WHERE id = ?", [status, result ?? null, now(), id]);
+  }
+
   // ---- Chat ----
   createConversation(title = "Nouvelle conversation"): Conversation {
     const t = now();
@@ -362,17 +417,22 @@ export class Repo {
 
   listConversations(): Conversation[] {
     return this.db
-      .all<Row>("SELECT * FROM conversations ORDER BY updated_at DESC LIMIT 200")
+      .all<Row>("SELECT * FROM conversations WHERE deleted = 0 ORDER BY updated_at DESC LIMIT 200")
       .map((r) => ({ id: r.id as string, title: r.title as string, createdAt: r.created_at as string, updatedAt: r.updated_at as string }));
   }
 
   renameConversation(id: string, title: string): void {
-    this.db.run("UPDATE conversations SET title = ? WHERE id = ?", [title, id]);
+    this.db.run("UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?", [title, now(), id]);
   }
 
   deleteConversation(id: string): void {
-    this.db.run("DELETE FROM messages WHERE conversation_id = ?", [id]);
-    this.db.run("DELETE FROM conversations WHERE id = ?", [id]);
+    // Suppression « douce » : la ligne reste (deleted = 1) pour que la suppression se propage à l'autre appareil
+    this.purgeMessages(id);
+    this.db.run("UPDATE conversations SET deleted = 1, updated_at = ? WHERE id = ?", [now(), id]);
+  }
+
+  purgeMessages(conversationId: string): void {
+    this.db.run("DELETE FROM messages WHERE conversation_id = ?", [conversationId]);
   }
 
   addMessage(conversationId: string, m: ChatMessage): ChatMessage {
@@ -392,7 +452,7 @@ export class Repo {
   getMessages(conversationId: string): ChatMessage[] {
     const p = (v: unknown) => (typeof v === "string" ? JSON.parse(v) : undefined);
     return this.db
-      .all<Row>("SELECT * FROM messages WHERE conversation_id = ? ORDER BY seq", [conversationId])
+      .all<Row>("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at, seq", [conversationId])
       .map((r) => ({
         id: r.id as string,
         conversationId,

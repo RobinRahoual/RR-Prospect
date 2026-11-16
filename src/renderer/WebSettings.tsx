@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { JobsPanel } from "./Jobs";
 import { SyncSection } from "./Settings";
 import { errMsg } from "./util";
 
@@ -55,6 +56,8 @@ export function WebSettings() {
       </div>
       <hr className="sep" />
       <SyncSection web />
+      <hr className="sep" />
+      <JobsPanel />
       <hr className="sep" />
       <div className="row">
         <button onClick={() => window.confirm("Effacer la clé Gemini et la connexion de cet appareil ?") && window.api.web!.signOut()}>

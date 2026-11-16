@@ -3,6 +3,7 @@ import dns from "node:dns/promises";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import {
+  processJobs, type JobRunners,
   buildPrompt, buildSystem, Database, executeTool, GeminiChat, GeminiEngine, gpuCheck, HintError, LLMRouter, OllamaChat,
   OllamaEngine, pullModel, geocode, normalizeScan, runScan, analyzeLead, isPublicHost, mailStatus, normalizeMail, sendBatch, sendDraft, isEmail, buildMessage, FirebaseAuth, FirestoreRemote, FIRESTORE_RULES, syncOnce, processInbox, senderFilter, deployTracker, Tracker, Repo, runAgent, TOOLS, testGeminiKey, trimHistory,
   type DraftStatus, type LeadInput, type Mode,
@@ -108,15 +109,15 @@ function tracker(): Tracker | null {
 
 let syncing = false;
 let syncLast: { at: string | null; error: string | null } = { at: null, error: null };
-async function runSync(wc?: Electron.WebContents) {
+async function runSync(wc?: Electron.WebContents, tables?: import("../core/sync/engine").Tbl[]) {
   const fb = cfg.getFirebase();
   if (!fb || syncing) return { pulled: 0, pushed: 0 };
   syncing = true;
   try {
     const remote = new FirestoreRemote(fb.projectId, new FirebaseAuth({ apiKey: fb.apiKey, email: fb.email, password: fb.password }));
-    const r = await syncOnce(repo, remote);
+    const r = await syncOnce(repo, remote, tables);
     syncLast = { at: new Date().toISOString(), error: null };
-    wc?.send("sync:done", r);
+    if (!tables || r.pulled || r.pushed) wc?.send("sync:done", r);
     return r;
   } catch (e) {
     syncLast = { at: syncLast.at, error: (e as Error).message };
@@ -138,6 +139,57 @@ function syncState() {
     lastError: syncLast.error,
     rules: FIRESTORE_RULES(f?.email || "ton-email@exemple.fr"),
   };
+}
+
+/* ---------------- Commandes venues de l'iPad ---------------- */
+const jobRunners: JobRunners = {
+  scan: async (o) => {
+    const settings = normalizeScan({ ...(o.categories?.length ? { categories: o.categories } : {}), ...(o.radiusKm ? { radiusKm: o.radiusKm } : {}) }, cfg.scan);
+    const r = await runScan(repo, settings, { openAgendaKey: cfg.getOaKey() });
+    return `Scan de ${settings.placeLabel} (${settings.radiusKm} km) : ${r.found} trouvés, ${r.added} nouveaux, ${r.duplicates} déjà présents.`;
+  },
+  analyze: async (id) => {
+    const lead = repo.getLead(id);
+    if (!lead) throw new Error("Lead introuvable");
+    const r = await analyzeLead(repo, lead, fetch, resolvesPublic);
+    return r.note ?? `Analyse terminée (score ${r.lead.gapScore}/100).`;
+  },
+  send: async (draftId) => {
+    const r = await sendDraft(repo, transport(), cfg.mail, draftId, { tracker: tracker() });
+    if (!r.ok) throw new Error(r.error);
+    return `Envoyé à ${r.to}.`;
+  },
+  sendApproved: async () => {
+    if (batchRunning) throw new Error("Un envoi groupé est déjà en cours sur le PC");
+    batchRunning = true;
+    stopBatch = false;
+    try {
+      const r = await sendBatch(repo, transport(), cfg.mail, { tracker: tracker(), shouldStop: () => stopBatch, onProgress: () => undefined });
+      return `${r.sent} envoyé(s), ${r.failed} échec(s)${r.stopped ? " — arrêt (plafond du jour ou erreur)" : ""}.`;
+    } finally {
+      batchRunning = false;
+    }
+  },
+};
+
+let jobsBusy = false;
+async function jobsTick(wc?: Electron.WebContents) {
+  if (jobsBusy || !cfg.getFirebase()) return;
+  jobsBusy = true;
+  try {
+    await runSync(wc, ["jobs"]);
+    // L'iPad envoie le brouillon validé puis la commande : on récupère tout (brouillons, leads) avant d'exécuter
+    if (repo.openJobs().some((j) => j.status === "pending")) await runSync(wc);
+    const n = await processJobs(repo, jobRunners, { onChange: () => void runSync(wc, ["jobs"]).catch(() => undefined) });
+    if (n) {
+      for (let i = 0; i < 10 && syncing; i++) await new Promise((r) => setTimeout(r, 500));
+      await runSync(wc); // les leads / brouillons modifiés par ces commandes repartent vers l'iPad
+    }
+  } catch {
+    /* hors ligne ou Firebase indisponible : on réessaie au prochain passage */
+  } finally {
+    jobsBusy = false;
+  }
 }
 
 let inboxBusy = false;
@@ -438,6 +490,9 @@ app.whenReady().then(async () => {
     refreshOpens().catch(() => undefined);
   };
   const syncTick = () => runSync(BrowserWindow.getAllWindows()[0]?.webContents).catch(() => undefined);
+  const jobsTickNow = () => jobsTick(BrowserWindow.getAllWindows()[0]?.webContents);
+  setTimeout(jobsTickNow, 15_000);
+  setInterval(jobsTickNow, 45_000);
   setTimeout(syncTick, 10_000);
   setInterval(syncTick, 5 * 60_000);
   setTimeout(tick, 30_000);

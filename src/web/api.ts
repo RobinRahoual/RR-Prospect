@@ -1,7 +1,7 @@
 import initSqlJs from "sql.js";
 import wasmUrl from "sql.js/dist/sql-wasm.wasm?url";
 import {
-  buildPrompt, buildSystem, Database, DEFAULT_SCAN, executeTool, FIRESTORE_RULES, FirebaseAuth, FirestoreRemote, GeminiChat, GeminiEngine,
+  buildPrompt, buildSystem, Database, DEFAULT_SCAN, enqueueJob, executeTool, FIRESTORE_RULES, FirebaseAuth, FirestoreRemote, GeminiChat, GeminiEngine,
   LLMRouter, Repo, runAgent, syncOnce, testGeminiKey, TOOLS, trimHistory, type ChatMessage, type Lead,
 } from "../core/web";
 import type { Api, SyncState } from "../shared/ipc";
@@ -28,8 +28,7 @@ const write = (k: string, v: unknown) => {
 };
 
 const PC_ONLY = () => new Error("Disponible uniquement dans l'app PC.");
-// L'analyse de sites et les scans sont bloqués par le navigateur (CORS) : ces outils restent côté PC
-const WEB_TOOLS = TOOLS.filter((t) => !["scan_area", "analyze_lead"].includes(t.name));
+const QUEUED = "Demandé au PC : il l'exécutera dès qu'il est allumé (réponse dans quelques instants si c'est le cas).";
 
 type Fb = { projectId: string; apiKey: string; email: string };
 type Gem = { key: string; model: string; fallback: string };
@@ -83,6 +82,8 @@ export async function createWebApi(): Promise<Api> {
     timer = setTimeout(() => void sync().catch(() => undefined), 2000);
   };
 
+  // Tant qu'une commande attend le PC, on regarde plus souvent si elle est terminée
+  setInterval(() => document.visibilityState === "visible" && fb && repo.openJobs().length && void sync().catch(() => undefined), 8_000);
   // Rafraîchit en continu : toutes les minutes et au retour sur l'app
   setInterval(() => document.visibilityState === "visible" && void sync().catch(() => undefined), 60_000);
   document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && void sync().catch(() => undefined));
@@ -106,6 +107,14 @@ export async function createWebApi(): Promise<Api> {
 
   return {
     web: {
+      jobs: {
+        enqueue: async (kind, params) => {
+          const j = enqueueJob(repo, kind, params);
+          soon();
+          return j;
+        },
+        list: async () => repo.listJobs(15),
+      },
       getKeys: async () => ({ hasGemini: !!gem, geminiModel: gem?.model ?? null }),
       setGeminiKey: async (key) => {
         const k = key.trim();
@@ -137,8 +146,12 @@ export async function createWebApi(): Promise<Api> {
         return l;
       },
       get: async (id) => repo.getLead(id),
-      analyze: async () => {
-        throw PC_ONLY();
+      analyze: async (id) => {
+        const lead = repo.getLead(id);
+        if (!lead) throw new Error("Lead introuvable");
+        enqueueJob(repo, "analyze", { leadId: id });
+        soon();
+        return { lead, note: `Analyse ${QUEUED}` };
       },
       suppress: async (id) => {
         const l = repo.getLead(id);
@@ -185,6 +198,16 @@ export async function createWebApi(): Promise<Api> {
           const router = new LLMRouter(null, cloudEngine());
           const deps = {
             repo,
+            scan: async (o: { categories?: string[]; radiusKm?: number }) => {
+              enqueueJob(repo, "scan", o);
+              soon();
+              return { queued: `Scan ${QUEUED} Les nouveaux leads apparaîtront après la synchro.` };
+            },
+            analyze: async (lead: Lead) => {
+              enqueueJob(repo, "analyze", { leadId: lead.id });
+              soon();
+              return { queued: `Analyse de ${lead.name} ${QUEUED}` };
+            },
             generateDraft: (lead: Lead, instructions?: string) => router.generate(buildPrompt(lead, { instructions, examples: repo.listApprovedExamples(3) }), "cloud"),
           };
           await runAgent(
@@ -193,7 +216,7 @@ export async function createWebApi(): Promise<Api> {
               cloud: new GeminiChat({ apiKey: gem.key, model: gem.model, fallbackModel: gem.fallback }),
               mode: "cloud",
               system: buildSystem(repo),
-              tools: WEB_TOOLS,
+              tools: TOOLS,
               execute: (call) => executeTool(deps, call),
               onMessage: (m) => emit(repo.addMessage(convId, m)),
             },
@@ -225,10 +248,19 @@ export async function createWebApi(): Promise<Api> {
       set: async () => {
         throw PC_ONLY();
       },
-      test: async () => ({ ok: false, error: "Envoi disponible uniquement depuis le PC." }),
-      send: async () => ({ ok: false, error: "Envoi disponible uniquement depuis le PC." }),
+      test: async () => ({ ok: false, error: "Le test d'envoi se fait depuis le PC." }),
+      send: async (draftId) => {
+        const d = repo.getDraft(draftId);
+        if (!d) return { ok: false, error: "Brouillon introuvable" };
+        if (d.status !== "approved") return { ok: false, error: "Valide le brouillon avant de l'envoyer" };
+        const j = enqueueJob(repo, "send", { draftId });
+        soon();
+        return { ok: true, to: repo.getLead(d.leadId)?.email ?? "", messageId: j.id };
+      },
       sendApproved: async () => {
-        throw PC_ONLY();
+        enqueueJob(repo, "send_approved");
+        soon();
+        return { sent: 0, failed: 0, stopped: false };
       },
       cancel: async () => undefined,
       onProgress: () => undefined,
