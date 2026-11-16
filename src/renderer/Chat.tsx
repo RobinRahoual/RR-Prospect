@@ -131,7 +131,7 @@ export function Chat({ cfg, onCfg }: { cfg: AppConfig; onCfg: (c: AppConfig) => 
       </aside>
 
       <div className="chat-main">
-        <div className="chat-top">
+        <div className="chat-top" hidden={!!window.api.web}>
           <span className="muted small">Moteur</span>
           <div className="seg">
             {MODES.map((m) => (

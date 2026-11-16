@@ -170,13 +170,13 @@ function LeadView({ lead, cfg, onCfg, onChanged }: { lead: Lead; cfg: AppConfig;
       )}
 
       <div className="toolbar">
-        <div className="seg" role="group" aria-label="Moteur IA">
+        {!window.api.web && <div className="seg" role="group" aria-label="Moteur IA">
           {MODES.map((m) => (
             <button key={m.id} title={m.help} className={cfg.mode === m.id ? "on" : ""} onClick={() => setMode(m.id)}>
               {m.label}
             </button>
           ))}
-        </div>
+        </div>}
         <button
           disabled={busy}
           title="Marque le lead comme à ne pas contacter et bloque son email"
@@ -189,9 +189,9 @@ function LeadView({ lead, cfg, onCfg, onChanged }: { lead: Lead; cfg: AppConfig;
         >
           Ne pas contacter
         </button>
-        <button disabled={busy} onClick={analyze} title="Visite le site et mesure sa présence visuelle">
+        {!window.api.web && <button disabled={busy} onClick={analyze} title="Visite le site et mesure sa présence visuelle">
           {lead.analyzedAt ? "Ré-analyser le site" : "Analyser le site"}
-        </button>
+        </button>}
         <button className="primary" disabled={busy} onClick={generate}>
           {busy ? "Génération…" : "Générer un brouillon"}
         </button>
@@ -264,7 +264,7 @@ export function DraftEditor({ draft, onSaved }: { draft: Draft; onSaved: () => v
         <button className="primary" onClick={() => save("approved")}>
           Valider
         </button>
-        {draft.status !== "sent" &&
+        {draft.status !== "sent" && !window.api.web &&
           (confirm ? (
             <>
               <button className="primary" onClick={send}>Confirmer l'envoi à {to}</button>
@@ -276,7 +276,7 @@ export function DraftEditor({ draft, onSaved }: { draft: Draft; onSaved: () => v
             </button>
           ))}
       </div>
-      {to && draft.status !== "sent" && <div className="muted small">Destinataire : {to}</div>}
+      {to && draft.status !== "sent" && <div className="muted small">Destinataire : {to}{window.api.web ? " — l'envoi se fait depuis le PC une fois le brouillon validé." : ""}</div>}
       {sendErr && <div className="error">{sendErr}</div>}
     </article>
   );

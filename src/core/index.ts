@@ -29,3 +29,7 @@ export * from "./mail/mailer";
 export * from "./mail/inbox";
 export { deployTracker, Tracker } from "./track/cloudflare";
 export { WORKER_JS } from "./track/worker-source";
+export { syncOnce, mergeRows } from "./sync/engine";
+export type { SyncReport } from "./sync/engine";
+export { FirebaseAuth, FirestoreRemote, FIRESTORE_RULES } from "./sync/firestore";
+export type { Remote, RemoteDoc, RemoteWrite, FirebaseConfig } from "./sync/firestore";

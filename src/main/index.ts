@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import {
   buildPrompt, buildSystem, Database, executeTool, GeminiChat, GeminiEngine, gpuCheck, HintError, LLMRouter, OllamaChat,
-  OllamaEngine, pullModel, geocode, normalizeScan, runScan, analyzeLead, isPublicHost, mailStatus, normalizeMail, sendBatch, sendDraft, isEmail, buildMessage, processInbox, senderFilter, deployTracker, Tracker, Repo, runAgent, TOOLS, testGeminiKey, trimHistory,
+  OllamaEngine, pullModel, geocode, normalizeScan, runScan, analyzeLead, isPublicHost, mailStatus, normalizeMail, sendBatch, sendDraft, isEmail, buildMessage, FirebaseAuth, FirestoreRemote, FIRESTORE_RULES, syncOnce, processInbox, senderFilter, deployTracker, Tracker, Repo, runAgent, TOOLS, testGeminiKey, trimHistory,
   type DraftStatus, type LeadInput, type Mode,
 } from "../core";
 import type { SetupParams, SetupStep, StepResult } from "../shared/ipc";
@@ -104,6 +104,40 @@ async function runStep(name: SetupStep, p: SetupParams, log: (l: string) => void
 function tracker(): Tracker | null {
   const t = cfg.getTrack();
   return t ? new Tracker(t.url, t.secret) : null;
+}
+
+let syncing = false;
+let syncLast: { at: string | null; error: string | null } = { at: null, error: null };
+async function runSync(wc?: Electron.WebContents) {
+  const fb = cfg.getFirebase();
+  if (!fb || syncing) return { pulled: 0, pushed: 0 };
+  syncing = true;
+  try {
+    const remote = new FirestoreRemote(fb.projectId, new FirebaseAuth({ apiKey: fb.apiKey, email: fb.email, password: fb.password }));
+    const r = await syncOnce(repo, remote);
+    syncLast = { at: new Date().toISOString(), error: null };
+    wc?.send("sync:done", r);
+    return r;
+  } catch (e) {
+    syncLast = { at: syncLast.at, error: (e as Error).message };
+    wc?.send("sync:done", { pulled: 0, pushed: 0, error: (e as Error).message });
+    throw e;
+  } finally {
+    syncing = false;
+  }
+}
+function syncState() {
+  const f = cfg.v.firebase;
+  return {
+    configured: !!cfg.getFirebase(),
+    projectId: f?.projectId ?? "",
+    apiKey: f?.apiKey ?? "",
+    email: f?.email ?? "",
+    hasPassword: !!cfg.getFirebase(),
+    lastAt: syncLast.at,
+    lastError: syncLast.error,
+    rules: FIRESTORE_RULES(f?.email || "ton-email@exemple.fr"),
+  };
 }
 
 let inboxBusy = false;
@@ -269,7 +303,11 @@ function registerIpc() {
       return { ok: false, error: friendlyMailError((e as Error).message) };
     }
   });
-  handle("mail:send", async (_e, draftId: string) => sendDraft(repo, transport(), cfg.mail, String(draftId), { tracker: tracker() }));
+  handle("mail:send", async (e, draftId: string) => {
+    const r = await sendDraft(repo, transport(), cfg.mail, String(draftId), { tracker: tracker() });
+    if (r.ok) runSync(e.sender).catch(() => undefined); // l'iPad doit savoir tout de suite que c'est parti
+    return r;
+  });
   handle("mail:sendApproved", async (e) => {
     if (batchRunning) throw new Error("Un envoi groupé est déjà en cours");
     batchRunning = true;
@@ -278,7 +316,10 @@ function registerIpc() {
       return await sendBatch(repo, transport(), cfg.mail, {
         tracker: tracker(),
         shouldStop: () => stopBatch,
-        onProgress: (p) => e.sender.send("mail:progress", p),
+        onProgress: (p) => {
+          e.sender.send("mail:progress", p);
+          if (p.result?.ok) runSync(e.sender).catch(() => undefined);
+        },
       });
     } finally {
       batchRunning = false;
@@ -296,6 +337,20 @@ function registerIpc() {
     return repo.getLead(l.id);
   });
 
+  handle("sync:get", () => syncState());
+  handle("sync:set", async (e, c: { projectId: string; apiKey: string; email: string }, pass?: string) => {
+    const clean = { projectId: String(c.projectId).trim(), apiKey: String(c.apiKey).trim(), email: String(c.email).trim() };
+    if (!clean.projectId || !clean.apiKey || !clean.email) throw new Error("Renseigne l'identifiant du projet, la clé API et l'email");
+    cfg.setFirebase(clean, pass?.trim() || undefined);
+    if (!cfg.getFirebase()) throw new Error("Renseigne aussi le mot de passe");
+    await runSync(e.sender); // teste la connexion tout de suite : l'erreur remonte à l'écran
+    return syncState();
+  });
+  handle("sync:run", (e) => runSync(e.sender));
+  handle("sync:disable", () => {
+    cfg.setFirebase(null);
+    return syncState();
+  });
   handle("inbox:check", (e) => checkInbox(e.sender));
   handle("inbox:list", () => repo.listInbound(50));
   handle("track:get", () => ({ enabled: !!cfg.getTrack(), url: cfg.getTrack()?.url ?? null }));
@@ -382,6 +437,9 @@ app.whenReady().then(async () => {
     if (cfg.getMailPass() && cfg.mail.address) checkInbox(wc).catch(() => undefined);
     refreshOpens().catch(() => undefined);
   };
+  const syncTick = () => runSync(BrowserWindow.getAllWindows()[0]?.webContents).catch(() => undefined);
+  setTimeout(syncTick, 10_000);
+  setInterval(syncTick, 5 * 60_000);
   setTimeout(tick, 30_000);
   setInterval(tick, 15 * 60_000);
 });

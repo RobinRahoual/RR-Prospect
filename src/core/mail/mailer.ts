@@ -1,5 +1,5 @@
 import type { Repo } from "../repo";
-import { randomUUID } from "node:crypto";
+const randomUUID = (): string => globalThis.crypto.randomUUID();
 import { htmlToPlain } from "../chat/tools";
 import type { Tracker } from "../track/cloudflare";
 

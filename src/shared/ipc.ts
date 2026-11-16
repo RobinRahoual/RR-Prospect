@@ -56,7 +56,33 @@ export interface TrackState {
   url: string | null;
 }
 
+export interface SyncState {
+  configured: boolean;
+  projectId: string;
+  apiKey: string;
+  email: string;
+  hasPassword: boolean;
+  lastAt: string | null;
+  lastError: string | null;
+  rules: string;
+}
+
+/** Fonctions propres à l'app web (iPad) */
+export interface WebApi {
+  getKeys(): Promise<{ hasGemini: boolean; geminiModel: string | null }>;
+  setGeminiKey(key: string): Promise<{ hasGemini: boolean; geminiModel: string | null; warn?: string }>;
+  signOut(): Promise<void>;
+}
+
 export interface Api {
+  web?: WebApi;
+  sync: {
+    get(): Promise<SyncState>;
+    set(cfg: { projectId: string; apiKey: string; email: string }, password?: string): Promise<SyncState>;
+    run(): Promise<{ pulled: number; pushed: number }>;
+    disable(): Promise<SyncState>;
+    onDone(cb: (r: { pulled: number; pushed: number; error?: string }) => void): void;
+  };
   inbox: {
     check(): Promise<{ replies: number; stops: number; bounces: number; checked: number }>;
     list(): Promise<InboundItem[]>;

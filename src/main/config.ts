@@ -16,6 +16,9 @@ interface StoredConfig {
   geminiKeyEnc?: string; // chiffré via DPAPI (Windows)
   scan?: ScanSettings;
   mail?: MailSettings;
+  firebase?: { projectId: string; apiKey: string; email: string };
+  fbPassEnc?: string;
+  fbPassPlain?: string;
   trackUrl?: string;
   trackSecretEnc?: string;
   trackSecretPlain?: string;
@@ -125,6 +128,26 @@ export class ConfigStore {
     try {
       const secret = this.c.trackSecretEnc ? safeStorage.decryptString(Buffer.from(this.c.trackSecretEnc, "base64")) : this.c.trackSecretPlain;
       return secret ? { url: this.c.trackUrl, secret } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  setFirebase(f: { projectId: string; apiKey: string; email: string } | null, password?: string): void {
+    if (!f) return this.set({ firebase: undefined, fbPassEnc: undefined, fbPassPlain: undefined });
+    this.set({ firebase: f });
+    if (password) {
+      const enc = safeStorage.isEncryptionAvailable();
+      this.set({ fbPassEnc: enc ? safeStorage.encryptString(password).toString("base64") : undefined, fbPassPlain: enc ? undefined : password });
+    }
+  }
+
+  getFirebase(): { projectId: string; apiKey: string; email: string; password: string } | null {
+    const f = this.c.firebase;
+    if (!f) return null;
+    try {
+      const password = this.c.fbPassEnc ? safeStorage.decryptString(Buffer.from(this.c.fbPassEnc, "base64")) : this.c.fbPassPlain;
+      return password ? { ...f, password } : null;
     } catch {
       return null;
     }

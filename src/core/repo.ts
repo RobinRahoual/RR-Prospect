@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import type { Database } from "./db";
+const randomUUID = (): string => globalThis.crypto.randomUUID();
+import type { Database } from "./db-core";
 import type { ChatMessage } from "./chat/types";
 import { htmlToPlain } from "./chat/tools";
 import type { Draft, DraftOut, DraftStatus, Lead, LeadInput, LeadStatus } from "./types";
@@ -99,6 +99,10 @@ export class Repo {
         message_id TEXT PRIMARY KEY, lead_id TEXT, kind TEXT NOT NULL, from_email TEXT, subject TEXT,
         snippet TEXT, received_at TEXT, created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS sync_meta (
+        tbl TEXT NOT NULL, id TEXT NOT NULL, u TEXT NOT NULL, PRIMARY KEY (tbl, id)
+      );
+      CREATE TABLE IF NOT EXISTS sync_state (k TEXT PRIMARY KEY, v TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS idx_sends_at ON sends(sent_at);
       CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, seq);
     `);
@@ -297,6 +301,55 @@ export class Repo {
   /** Date du premier envoi (borne de recherche dans la boîte) */
   firstSendAt(): string | null {
     return (this.db.all<Row>("SELECT MIN(sent_at) AS d FROM sends WHERE status = 'sent'")[0]?.d as string) ?? null;
+  }
+
+  // ---- Synchronisation (voir sync/engine.ts) ----
+  getSyncState(k: string): string | null {
+    return (this.db.all<Row>("SELECT v FROM sync_state WHERE k = ?", [k])[0]?.v as string) ?? null;
+  }
+
+  setSyncState(k: string, v: string): void {
+    this.db.run("INSERT OR REPLACE INTO sync_state (k, v) VALUES (?, ?)", [k, v]);
+  }
+
+  /** Lignes modifiées depuis leur dernière synchronisation (jamais vues, ou changées depuis) */
+  dirtyRows(tbl: "leads" | "drafts" | "suppression", limit = 200): { id: string; u: string; row: Row }[] {
+    const key = tbl === "suppression" ? "email" : "id";
+    const ucol = tbl === "suppression" ? "created_at" : "updated_at";
+    return this.db
+      .all<Row>(
+        `SELECT t.* FROM ${tbl} t LEFT JOIN sync_meta m ON m.tbl = ? AND m.id = t.${key}
+         WHERE m.u IS NULL OR m.u <> t.${ucol} LIMIT ?`,
+        [tbl, limit]
+      )
+      .map((row) => ({ id: String(row[key]), u: String(row[ucol]), row }));
+  }
+
+  markSynced(tbl: string, id: string, u: string): void {
+    this.db.run("INSERT OR REPLACE INTO sync_meta (tbl, id, u) VALUES (?,?,?)", [tbl, id, u]);
+  }
+
+  getRow(tbl: "leads" | "drafts" | "suppression", id: string): Row | null {
+    const key = tbl === "suppression" ? "email" : "id";
+    return this.db.all<Row>(`SELECT * FROM ${tbl} WHERE ${key} = ?`, [id])[0] ?? null;
+  }
+
+  /** Insère ou met à jour une ligne brute (colonnes inconnues ignorées). Retourne false si refusée (doublon de fiche Google). */
+  putRow(tbl: "leads" | "drafts" | "suppression", row: Row): boolean {
+    const key = tbl === "suppression" ? "email" : "id";
+    const cols = this.db.all<Row>(`PRAGMA table_info(${tbl})`).map((c) => String(c.name));
+    const keys = Object.keys(row).filter((k) => cols.includes(k));
+    if (tbl === "leads" && row.place_id) {
+      const clash = this.db.all<Row>("SELECT id FROM leads WHERE place_id = ? AND id <> ?", [row.place_id, row.id]);
+      if (clash.length) return false;
+    }
+    if (this.getRow(tbl, String(row[key]))) {
+      const sets = keys.filter((k) => k !== key);
+      if (sets.length) this.db.run(`UPDATE ${tbl} SET ${sets.map((k) => `${k} = ?`).join(", ")} WHERE ${key} = ?`, [...sets.map((k) => row[k]), row[key]]);
+    } else {
+      this.db.run(`INSERT INTO ${tbl} (${keys.join(",")}) VALUES (${keys.map(() => "?").join(",")})`, keys.map((k) => row[k]));
+    }
+    return true;
   }
 
   // ---- Chat ----

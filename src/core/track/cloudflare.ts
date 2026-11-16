@@ -89,7 +89,7 @@ export async function deployTracker(
 }
 
 export class Tracker {
-  constructor(private url: string, private secret: string, private f: F = fetch) {}
+  constructor(private url: string, private secret: string, private f: F = (...a) => fetch(...a)) {}
 
   pixelUrl(id: string): string {
     return `${this.url}/o/${id}.gif`;

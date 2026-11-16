@@ -39,5 +39,4 @@ Publier une version : créer une Release GitHub avec un tag `v*` → le workflow
 3b. ✅ Mises à jour automatiques depuis les Releases GitHub (dépôt public requis)
 3c. ✅ Lecture de la boîte Gmail (IMAP) : réponses, STOP et rebonds traités automatiquement, relances J+4
 3d. ✅ Suivi d'ouverture : Worker Cloudflare gratuit installé par l'app (jeton API collé une fois)
-4. Firebase : synchronisation PC ⇄ iPad dans les deux sens + webapp
-5. Worker Cloudflare : pixel d'ouverture, clics, proxy Gemini pour l'iPad
+4. ✅ Synchronisation PC ⇄ iPad (Firebase gratuit, Firestore + Auth email/mot de passe) + webapp iPad publiée sur GitHub Pages (workflow `pages.yml`). L'iPad utilise Gemini directement ; envoi, scan et analyse restent sur le PC. Le PC fonctionne seul sans Firebase

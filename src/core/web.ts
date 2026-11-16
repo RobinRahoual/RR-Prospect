@@ -1,0 +1,17 @@
+// Point d'entrée de l'app web (iPad) : le cœur sans rien qui dépende de Node (fichiers, SMTP, DNS…)
+export * from "./types";
+export * from "./errors";
+export { Database } from "./db-core";
+export { Repo } from "./repo";
+export { buildPrompt } from "./prompts";
+export { LLMRouter } from "./llm/router";
+export { GeminiEngine } from "./llm/gemini";
+export { testGeminiKey } from "./llm/gemini-setup";
+export * from "./chat/types";
+export { GeminiChat } from "./chat/gemini-chat";
+export { runAgent, trimHistory } from "./chat/agent";
+export { TOOLS, executeTool } from "./chat/tools";
+export { buildSystem } from "./chat/prompts";
+export { DEFAULT_SCAN } from "./scan/settings";
+export { syncOnce } from "./sync/engine";
+export { FirebaseAuth, FirestoreRemote, FIRESTORE_RULES } from "./sync/firestore";

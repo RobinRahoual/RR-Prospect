@@ -1,8 +1,115 @@
 import { useEffect, useState } from "react";
-import type { MailState } from "../shared/ipc";
+import type { MailState, SyncState } from "../shared/ipc";
 import { SCAN_CATEGORIES, type ScanSettings } from "../core/scan/settings";
 import type { ScanReport } from "../core/scan/osm";
 import { errMsg } from "./util";
+
+export function SyncSection({ web = false }: { web?: boolean }) {
+  const [st, setSt] = useState<SyncState | null>(null);
+  const [f, setF] = useState({ projectId: "", apiKey: "", email: "" });
+  const [pass, setPass] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    window.api.sync.get().then((s) => {
+      setSt(s);
+      setF({ projectId: s.projectId, apiKey: s.apiKey, email: s.email });
+    });
+    window.api.sync.onDone((r) => {
+      if (r.error) setErr(r.error);
+      else setMsg(`Synchronisé : ${r.pulled} reçu(s), ${r.pushed} envoyé(s).`);
+      window.api.sync.get().then(setSt);
+    });
+  }, []);
+  if (!st) return null;
+  const rules = st.rules.replace(/"[^"]*@[^"]*"|"ton-email@exemple.fr"/, `"${f.email || "ton-email@exemple.fr"}"`);
+
+  async function connect() {
+    setBusy(true);
+    setErr("");
+    setMsg("");
+    try {
+      setSt(await window.api.sync.set(f, pass));
+      setPass("");
+      setMsg("Connecté. Synchronisation faite.");
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="stack">
+      <h2>Synchronisation {web ? "avec le PC" : "avec l'iPad"} (Firebase, gratuit)</h2>
+      {st.configured ? (
+        <>
+          <p className="muted small">
+            Connecté au projet <strong>{st.projectId}</strong> ({st.email}).{" "}
+            {st.lastAt ? `Dernière synchro : ${new Date(st.lastAt).toLocaleTimeString("fr-FR")}.` : "Pas encore synchronisé."}
+            {web ? " Les changements du PC arrivent en moins d'une minute." : " Automatique toutes les 5 minutes, et juste après chaque envoi."}
+          </p>
+          {st.lastError && <div className="error">{st.lastError}</div>}
+          <div className="row">
+            <button
+              className="primary"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                setErr("");
+                try {
+                  await window.api.sync.run();
+                } catch (e) {
+                  setErr(errMsg(e));
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? "Synchronisation…" : "Synchroniser maintenant"}
+            </button>
+            <button onClick={async () => setSt(await window.api.sync.disable())}>Déconnecter</button>
+          </div>
+        </>
+      ) : (
+        <>
+          <ol className="muted small" style={{ paddingLeft: 18, margin: 0, display: "grid", gap: 4 }}>
+            <li>Sur <a href="https://console.firebase.google.com" target="_blank" rel="noreferrer">console.firebase.google.com</a> : « Ajouter un projet » (désactive Google Analytics).</li>
+            <li><strong>Build → Firestore Database → Créer une base</strong> (mode production, région europe-west).</li>
+            <li><strong>Build → Authentication → Commencer</strong> → « E-mail/Mot de passe » → activer. Onglet « Users » → <strong>Ajouter un utilisateur</strong> (ton email et un mot de passe). Ensuite, onglet « Settings » → « User actions » : décoche la création de comptes.</li>
+            <li><strong>Firestore → Règles</strong> : colle les règles ci-dessous, puis « Publier ».</li>
+            <li><strong>⚙ Paramètres du projet → Général</strong> : copie l'<em>ID du projet</em> et la <em>clé API Web</em> (si elle manque : « Ajouter une application » → Web).</li>
+          </ol>
+          <pre className="log" style={{ color: "#ddd", height: "auto" }}>{rules}</pre>
+          <div className="row">
+            <button
+              onClick={async () => {
+                await navigator.clipboard.writeText(rules);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
+            >
+              {copied ? "Copié" : "Copier les règles"}
+            </button>
+          </div>
+          <label>ID du projet<input value={f.projectId} onChange={(e) => setF({ ...f, projectId: e.target.value })} /></label>
+          <label>Clé API Web<input value={f.apiKey} onChange={(e) => setF({ ...f, apiKey: e.target.value })} /></label>
+          <label>Email de l'utilisateur Firebase<input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></label>
+          <label>Mot de passe<input type="password" value={pass} onChange={(e) => setPass(e.target.value)} /></label>
+          <div className="row">
+            <button className="primary" disabled={busy || !f.projectId || !f.apiKey || !f.email || !pass} onClick={connect}>
+              {busy ? "Connexion…" : "Connecter et synchroniser"}
+            </button>
+          </div>
+          {err && <div className="error">{err}</div>}
+        </>
+      )}
+      {msg && <div className="muted small">{msg}</div>}
+    </div>
+  );
+}
 
 function TrackSection() {
   const [t, setT] = useState<{ enabled: boolean; url: string | null } | null>(null);
@@ -328,6 +435,8 @@ export function Settings({ onScanned }: { onScanned: () => void }) {
       <MailSection />
       <hr className="sep" />
       <TrackSection />
+      <hr className="sep" />
+      <SyncSection />
     </div>
   );
 }

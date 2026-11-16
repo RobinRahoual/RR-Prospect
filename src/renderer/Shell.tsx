@@ -4,15 +4,18 @@ import type { AppConfig } from "../shared/ipc";
 import { Chat } from "./Chat";
 import { Inbox } from "./Inbox";
 import { Settings } from "./Settings";
+import { WebSettings } from "./WebSettings";
 import { Workspace } from "./Workspace";
 
 export function Shell({ cfg, onCfg }: { cfg: AppConfig; onCfg: (c: AppConfig) => void }) {
   const [tab, setTab] = useState<"chat" | "leads" | "inbox" | "settings">("chat");
   const [reload, setReload] = useState(0);
   const [upd, setUpd] = useState<UpdateState | null>(null);
+  const web = !!window.api.web;
   useEffect(() => {
     window.api.update.state().then(setUpd);
     window.api.update.onState(setUpd);
+    window.api.sync.onDone(() => setReload((n) => n + 1)); // la synchro a peut-être apporté de nouveaux leads
   }, []);
   const go = (t: "chat" | "leads" | "inbox" | "settings") => {
     setTab(t);
@@ -22,7 +25,7 @@ export function Shell({ cfg, onCfg }: { cfg: AppConfig; onCfg: (c: AppConfig) =>
     <div className="shell">
       <nav className="topnav">
         <span>
-          <strong>RR Prospect</strong> <span className="muted small">v{upd?.version ?? ""}</span>
+          <strong>RR Prospect</strong> <span className="muted small">{web ? "iPad" : `v${upd?.version ?? ""}`}</span>
         </span>
         <div className="seg">
           <button className={tab === "chat" ? "on" : ""} onClick={() => go("chat")}>
@@ -31,9 +34,11 @@ export function Shell({ cfg, onCfg }: { cfg: AppConfig; onCfg: (c: AppConfig) =>
           <button className={tab === "leads" ? "on" : ""} onClick={() => go("leads")}>
             Leads
           </button>
-          <button className={tab === "inbox" ? "on" : ""} onClick={() => go("inbox")}>
-            Réponses
-          </button>
+          {!web && (
+            <button className={tab === "inbox" ? "on" : ""} onClick={() => go("inbox")}>
+              Réponses
+            </button>
+          )}
           <button className={tab === "settings" ? "on" : ""} onClick={() => go("settings")}>
             Réglages
           </button>
@@ -61,7 +66,7 @@ export function Shell({ cfg, onCfg }: { cfg: AppConfig; onCfg: (c: AppConfig) =>
           <Inbox reloadKey={reload} onChanged={() => setReload((n) => n + 1)} />
         </div>
         <div hidden={tab !== "settings"} className="fill scroll">
-          <Settings onScanned={() => setReload((n) => n + 1)} />
+          {web ? <WebSettings /> : <Settings onScanned={() => setReload((n) => n + 1)} />}
         </div>
       </div>
     </div>

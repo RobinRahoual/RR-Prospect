@@ -1,7 +1,19 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Api } from "../shared/ipc";
 
+const syncCbs = new Set<(r: { pulled: number; pushed: number; error?: string }) => void>();
+ipcRenderer.on("sync:done", (_e, r) => syncCbs.forEach((cb) => cb(r)));
+
 const api: Api = {
+  sync: {
+    get: () => ipcRenderer.invoke("sync:get"),
+    set: (cfg, pass) => ipcRenderer.invoke("sync:set", cfg, pass),
+    run: () => ipcRenderer.invoke("sync:run"),
+    disable: () => ipcRenderer.invoke("sync:disable"),
+    onDone: (cb) => {
+      syncCbs.add(cb);
+    },
+  },
   inbox: {
     check: () => ipcRenderer.invoke("inbox:check"),
     list: () => ipcRenderer.invoke("inbox:list"),
