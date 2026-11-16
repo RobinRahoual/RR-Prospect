@@ -18,6 +18,16 @@ const api: Api = {
     list: () => ipcRenderer.invoke("leads:list"),
     create: (input) => ipcRenderer.invoke("leads:create", input),
   },
+  scan: {
+    getSettings: () => ipcRenderer.invoke("scan:get"),
+    setSettings: (s) => ipcRenderer.invoke("scan:set", s),
+    geocode: (q) => ipcRenderer.invoke("scan:geocode", q),
+    run: () => ipcRenderer.invoke("scan:run"),
+    onLog: (cb) => {
+      ipcRenderer.removeAllListeners("scan:log");
+      ipcRenderer.on("scan:log", (_e, l: string) => cb(l));
+    },
+  },
   chat: {
     list: () => ipcRenderer.invoke("chat:list"),
     create: () => ipcRenderer.invoke("chat:create"),

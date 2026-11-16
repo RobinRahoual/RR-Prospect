@@ -1,5 +1,8 @@
 import type { Lead, DraftOut } from "../types";
 import type { Repo } from "../repo";
+import type { ScanReport } from "../scan/osm";
+import type { ScanSettings } from "../scan/settings";
+import { SCAN_CATEGORIES } from "../scan/settings";
 import type { Card, ToolCall, ToolOutput, ToolSpec } from "./types";
 
 export const TOOLS: ToolSpec[] = [
@@ -17,6 +20,18 @@ export const TOOLS: ToolSpec[] = [
         query: { type: "string", description: "Texte à chercher dans le nom, la catégorie ou la ville" },
         status: { type: "string", enum: ["new", "drafted", "sent", "replied", "skipped"] },
         limit: { type: "integer", description: "Maximum de résultats (défaut 10)" },
+      },
+    },
+  },
+  {
+    name: "scan_area",
+    description:
+      "Lance un scan GRATUIT (OpenStreetMap) des commerces autour de la zone réglée par Robin dans l'onglet Réglages, et ajoute les leads trouvés. Sans argument, utilise ses réglages. À lancer seulement si Robin le demande.",
+    parameters: {
+      type: "object",
+      properties: {
+        categories: { type: "array", items: { type: "string", enum: SCAN_CATEGORIES.map((c) => c.id) }, description: "Remplace les catégories réglées, pour ce scan seulement" },
+        radius_km: { type: "number", description: "Remplace le rayon réglé (1 à 50), pour ce scan seulement" },
       },
     },
   },
@@ -73,6 +88,7 @@ export const TOOLS: ToolSpec[] = [
 
 export interface ToolDeps {
   repo: Repo;
+  scan?: (overrides: Partial<ScanSettings>) => Promise<ScanReport & { settings: ScanSettings }>;
   generateDraft: (lead: Lead, instructions?: string) => Promise<{ draft: DraftOut; engine: string }>;
 }
 
@@ -141,6 +157,16 @@ export async function executeTool(deps: ToolDeps, call: ToolCall): Promise<ToolO
         .filter((l) => !q || [l.name, l.category, l.city].some((x) => x?.toLowerCase().includes(q)))
         .slice(0, limit);
       return { result: { count: found.length, leads: found.map(brief) }, cards: found.length ? [leadsCard(found)] : undefined };
+    }
+    case "scan_area": {
+      if (!deps.scan) throw new Error("Le scan n'est pas disponible");
+      const cats = Array.isArray(a.categories) ? a.categories.filter((x): x is string => typeof x === "string") : undefined;
+      const r = await deps.scan({ ...(cats?.length ? { categories: cats } : {}), ...(Number(a.radius_km) ? { radiusKm: Number(a.radius_km) } : {}) });
+      const top = repo.listLeads("new").slice(0, 5);
+      return {
+        result: { zone: r.settings.placeLabel, rayonKm: r.settings.radiusKm, trouvés: r.found, ajoutés: r.added, déjàPrésents: r.duplicates, source: r.source, meilleurs: top.map(brief) },
+        cards: top.length ? [leadsCard(top)] : undefined,
+      };
     }
     case "get_lead": {
       const l = resolveLead(repo, a.lead);

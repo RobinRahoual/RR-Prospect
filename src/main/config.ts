@@ -2,6 +2,7 @@ import { app, safeStorage } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import type { Mode } from "../core/types";
+import { DEFAULT_SCAN, type ScanSettings } from "../core/scan/settings";
 import type { AppConfig } from "../shared/ipc";
 
 interface StoredConfig {
@@ -12,6 +13,7 @@ interface StoredConfig {
   geminiModel?: string;
   geminiFallback?: string;
   geminiKeyEnc?: string; // chiffré via DPAPI (Windows)
+  scan?: ScanSettings;
   geminiKeyPlain?: string; // uniquement si le chiffrement est indisponible
 }
 
@@ -60,6 +62,10 @@ export class ConfigStore {
       return null;
     }
     return this.c.geminiKeyPlain ?? null;
+  }
+
+  get scan(): ScanSettings {
+    return { ...DEFAULT_SCAN, ...(this.c.scan ?? {}) };
   }
 
   toPublic(): AppConfig {

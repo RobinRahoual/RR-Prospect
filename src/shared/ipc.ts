@@ -1,5 +1,7 @@
 import type { ChatMessage } from "../core/chat/types";
 import type { Conversation } from "../core/repo";
+import type { GeoResult, ScanReport } from "../core/scan/osm";
+import type { ScanSettings } from "../core/scan/settings";
 import type { Draft, DraftStatus, Lead, LeadInput, Mode } from "../core/types";
 
 export interface AppConfig {
@@ -38,6 +40,13 @@ export interface Api {
   leads: {
     list(): Promise<Lead[]>;
     create(input: LeadInput): Promise<Lead>;
+  };
+  scan: {
+    getSettings(): Promise<ScanSettings>;
+    setSettings(s: Partial<ScanSettings>): Promise<ScanSettings>;
+    geocode(query: string): Promise<GeoResult>;
+    run(): Promise<ScanReport>;
+    onLog(cb: (line: string) => void): void;
   };
   chat: {
     list(): Promise<Conversation[]>;

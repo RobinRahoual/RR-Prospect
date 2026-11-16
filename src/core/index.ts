@@ -16,3 +16,7 @@ export { GeminiChat, toGeminiContents } from "./chat/gemini-chat";
 export { runAgent, trimHistory } from "./chat/agent";
 export { TOOLS, executeTool, resolveLead, htmlToPlain } from "./chat/tools";
 export { buildSystem, buildChatContext, CHAT_SYSTEM } from "./chat/prompts";
+export { SCAN_CATEGORIES, DEFAULT_SCAN, normalizeScan } from "./scan/settings";
+export type { ScanSettings, ScanCategory } from "./scan/settings";
+export { scanArea, geocode, buildOverpassQuery, elementToLead } from "./scan/osm";
+export type { ScanReport, GeoResult } from "./scan/osm";

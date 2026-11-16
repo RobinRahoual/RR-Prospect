@@ -78,3 +78,11 @@ button.ghost{min-height:28px;padding:0 8px;border:0;background:transparent;color
 .typing{font-size:13px}
 .composer{display:flex;gap:10px;padding:10px 14px;border-top:1px solid var(--line);align-items:flex-end}
 .composer textarea{resize:none}
+
+.scroll{overflow:auto}
+.settings{max-width:640px;margin:0 auto;padding:20px;display:grid;gap:16px}
+.cats{border:1px solid var(--line);border-radius:8px;padding:10px 14px;display:grid;gap:8px}
+.cats legend{padding:0 6px;color:#bbb;font-size:13px}
+label.check{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--text)}
+label.check input{width:auto}
+input[type=range]{padding:0}

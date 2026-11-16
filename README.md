@@ -34,7 +34,7 @@ Publier une version : créer une Release GitHub avec un tag `v*` → le workflow
 ## Feuille de route
 1. ✅ Moteur + app locale + assistant + génération de brouillons
 1b. ✅ Interface chat : assistant spécialisé prospection (playbook, profil, exemples validés par toi) qui lit/crée tes leads et rédige les brouillons via des outils ; il n'envoie jamais rien
-2. Scan Google Places (score de présence visuelle) + événements (OpenAgenda, open data Dijon)
+2. ✅ Scan gratuit OpenStreetMap (zone, rayon, catégories réglables dans Réglages). À venir : SIRENE, OpenAgenda, analyse web par l'IA ; Google Places en option avec quota dur
 3. Envoi Gmail (OAuth sur le PC), liste de suppression, plafond quotidien
 4. Firebase : synchronisation PC ⇄ iPad dans les deux sens + webapp
 5. Worker Cloudflare : pixel d'ouverture, clics, proxy Gemini pour l'iPad

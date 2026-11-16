@@ -9,7 +9,7 @@ const MODES: { id: Mode; label: string; help: string }[] = [
   { id: "cloud", label: "Cloud", help: "Gemini uniquement" },
 ];
 
-export function Workspace({ cfg, onCfg }: { cfg: AppConfig; onCfg: (c: AppConfig) => void }) {
+export function Workspace({ cfg, onCfg, reloadKey = 0 }: { cfg: AppConfig; onCfg: (c: AppConfig) => void; reloadKey?: number }) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [sel, setSel] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -17,7 +17,7 @@ export function Workspace({ cfg, onCfg }: { cfg: AppConfig; onCfg: (c: AppConfig
   const refresh = async () => setLeads(await window.api.leads.list());
   useEffect(() => {
     refresh();
-  }, []);
+  }, [reloadKey]);
 
   const lead = leads.find((l) => l.id === sel) ?? null;
 

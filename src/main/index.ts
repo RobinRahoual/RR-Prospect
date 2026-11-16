@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, shell, type IpcMainInvokeEvent } from "ele
 import path from "node:path";
 import {
   buildPrompt, buildSystem, Database, executeTool, GeminiChat, GeminiEngine, gpuCheck, HintError, LLMRouter, OllamaChat,
-  OllamaEngine, pullModel, Repo, runAgent, TOOLS, testGeminiKey, trimHistory,
+  OllamaEngine, pullModel, geocode, normalizeScan, scanArea, Repo, runAgent, TOOLS, testGeminiKey, trimHistory,
   type DraftStatus, type LeadInput, type Mode,
 } from "../core";
 import type { SetupParams, SetupStep, StepResult } from "../shared/ipc";
@@ -117,6 +117,10 @@ async function sendChat(event: IpcMainInvokeEvent, convId: string, text: string)
     const router = buildRouter();
     const deps = {
       repo,
+      scan: async (o: Partial<import("../core").ScanSettings>) => {
+        const settings = normalizeScan(o, cfg.scan);
+        return { ...(await scanArea(repo, settings)), settings };
+      },
       generateDraft: async (lead: import("../core").Lead, instructions?: string) =>
         router.generate(buildPrompt(lead, { instructions, examples: repo.listApprovedExamples(3) }), c.mode),
     };
@@ -154,6 +158,15 @@ function registerIpc() {
     }
   });
   handle("setup:finish", () => cfg.set({ setupDone: true }));
+
+  handle("scan:get", () => cfg.scan);
+  handle("scan:set", (_e, patch: Partial<import("../core").ScanSettings>) => {
+    const s = normalizeScan(patch, cfg.scan);
+    cfg.set({ scan: s });
+    return s;
+  });
+  handle("scan:geocode", (_e, q: string) => geocode(String(q)));
+  handle("scan:run", (e) => scanArea(repo, cfg.scan, fetch, (l) => e.sender.send("scan:log", l)));
 
   handle("chat:list", () => repo.listConversations());
   handle("chat:create", () => repo.createConversation());
