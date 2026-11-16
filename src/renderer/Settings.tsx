@@ -4,6 +4,64 @@ import { SCAN_CATEGORIES, type ScanSettings } from "../core/scan/settings";
 import type { ScanReport } from "../core/scan/osm";
 import { errMsg } from "./util";
 
+function TrackSection() {
+  const [t, setT] = useState<{ enabled: boolean; url: string | null } | null>(null);
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [log, setLog] = useState<string[]>([]);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    window.api.track.get().then(setT);
+    window.api.track.onLog((l) => setLog((x) => [...x, l]));
+  }, []);
+  if (!t) return null;
+
+  async function install() {
+    setBusy(true);
+    setErr("");
+    setLog([]);
+    try {
+      setT(await window.api.track.install(token));
+      setToken("");
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="stack">
+      <h2>Suivi des ouvertures (gratuit)</h2>
+      {t.enabled ? (
+        <>
+          <p className="muted small">Actif : un pixel invisible est ajouté à chaque mail (avec une mention dans le pied de message). Adresse : {t.url}. Les ouvertures sont indicatives : certains logiciels de messagerie chargent les images automatiquement.</p>
+          <div className="row">
+            <button onClick={async () => setT(await window.api.track.disable())}>Désactiver le suivi</button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="muted small">
+            L'app installe elle-même un petit service dans ton compte Cloudflare gratuit (aucune carte bancaire). 1) Crée un compte sur{" "}
+            <a href="https://dash.cloudflare.com/sign-up" target="_blank" rel="noreferrer">cloudflare.com</a>. 2) Ouvre{" "}
+            <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noreferrer">Mon profil → Jetons API</a> → « Créer un jeton » → modèle <strong>« Edit Cloudflare Workers »</strong> → crée-le et colle-le ci-dessous. Le jeton n'est pas conservé.
+          </p>
+          <label>
+            Jeton API Cloudflare
+            <input type="password" value={token} onChange={(e) => setToken(e.target.value)} />
+          </label>
+          <div className="row">
+            <button className="primary" disabled={busy || !token.trim()} onClick={install}>{busy ? "Installation…" : "Installer le suivi"}</button>
+          </div>
+          {log.length > 0 && <pre className="log">{log.join("\n")}</pre>}
+          {err && <div className="error">{err}</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
 function MailSection() {
   const [m, setM] = useState<MailState | null>(null);
   const [pass, setPass] = useState("");
@@ -268,6 +326,8 @@ export function Settings({ onScanned }: { onScanned: () => void }) {
       )}
       <hr className="sep" />
       <MailSection />
+      <hr className="sep" />
+      <TrackSection />
     </div>
   );
 }

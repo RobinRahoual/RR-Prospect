@@ -16,6 +16,7 @@
     "dist": "npm run build && electron-builder --win nsis --publish never"
   },
   "devDependencies": {
+    "@types/mailparser": "^3.9.0",
     "@types/node": "^22.0.0",
     "@types/nodemailer": "^8.0.2",
     "@types/react": "^18.3.0",
@@ -25,6 +26,8 @@
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
     "esbuild": "^0.24.0",
+    "imapflow": "^2.12.1",
+    "mailparser": "^3.14.5",
     "nodemailer": "^10.6.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",

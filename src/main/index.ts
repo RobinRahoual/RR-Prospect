@@ -1,14 +1,16 @@
-import { app, BrowserWindow, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
+import { app, BrowserWindow, Notification, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
 import dns from "node:dns/promises";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import {
   buildPrompt, buildSystem, Database, executeTool, GeminiChat, GeminiEngine, gpuCheck, HintError, LLMRouter, OllamaChat,
-  OllamaEngine, pullModel, geocode, normalizeScan, runScan, analyzeLead, isPublicHost, mailStatus, normalizeMail, sendBatch, sendDraft, isEmail, buildMessage, Repo, runAgent, TOOLS, testGeminiKey, trimHistory,
+  OllamaEngine, pullModel, geocode, normalizeScan, runScan, analyzeLead, isPublicHost, mailStatus, normalizeMail, sendBatch, sendDraft, isEmail, buildMessage, processInbox, senderFilter, deployTracker, Tracker, Repo, runAgent, TOOLS, testGeminiKey, trimHistory,
   type DraftStatus, type LeadInput, type Mode,
 } from "../core";
 import type { SetupParams, SetupStep, StepResult } from "../shared/ipc";
 import { checkNow, initUpdater, installNow, updateState } from "./updater";
 import { gmailTransport } from "./mail";
+import { fetchInbound } from "./imap";
 import { ConfigStore } from "./config";
 import { enableVulkan, ensureRunning, installOllama, resolveBin } from "./ollama-setup";
 
@@ -97,6 +99,51 @@ async function runStep(name: SetupStep, p: SetupParams, log: (l: string) => void
       return { ok: true, detail: `Pro : ${r.pro}${r.flash ? ` · repli ${r.flash}` : ""}` };
     }
   }
+}
+
+function tracker(): Tracker | null {
+  const t = cfg.getTrack();
+  return t ? new Tracker(t.url, t.secret) : null;
+}
+
+let inboxBusy = false;
+async function checkInbox(wc?: Electron.WebContents) {
+  const pass = cfg.getMailPass();
+  const s = cfg.mail;
+  if (!pass || !isEmail(s.address)) throw new Error("Configure d'abord Gmail dans Réglages");
+  if (inboxBusy) return { replies: 0, stops: 0, bounces: 0, checked: 0 };
+  inboxBusy = true;
+  try {
+    const first = repo.firstSendAt();
+    if (!first) return { replies: 0, stops: 0, bounces: 0, checked: 0 };
+    const since = new Date(Math.max(new Date(first).getTime() - 86400_000, Date.now() - 60 * 86400_000));
+    const mails = await fetchInbound(s.address, pass, since, senderFilter(repo.listLeads()));
+    const r = processInbox(repo, mails);
+    cfg.set({ lastInboxCheck: new Date().toISOString() });
+    if (r.replies + r.stops + r.bounces > 0) {
+      wc?.send("inbox:new", r);
+      if (Notification.isSupported() && r.replies > 0) new Notification({ title: "RR Prospect", body: `${r.replies} nouvelle(s) réponse(s) de prospects` }).show();
+    }
+    return r;
+  } catch (e) {
+    const m = (e as Error).message;
+    throw new Error(/AUTHENTICATIONFAILED|Invalid credentials|authenticat/i.test(m) ? "Gmail refuse la connexion IMAP (vérifie le mot de passe d'application)." : /ENOTFOUND|ETIMEDOUT|ECONN/i.test(m) ? "Connexion à Gmail impossible : vérifie ta connexion internet." : m);
+  } finally {
+    inboxBusy = false;
+  }
+}
+
+async function refreshOpens() {
+  const t = tracker();
+  if (!t) return {};
+  const ids = repo.listTrackIds();
+  if (ids.length) {
+    for (let i = 0; i < ids.length; i += 200) {
+      const stats = await t.stats(ids.slice(i, i + 200));
+      for (const [id, v] of Object.entries(stats)) repo.setOpens(id, v.opens, v.first, v.last);
+    }
+  }
+  return repo.opensByLead();
 }
 
 let stopBatch = false;
@@ -222,13 +269,14 @@ function registerIpc() {
       return { ok: false, error: friendlyMailError((e as Error).message) };
     }
   });
-  handle("mail:send", async (_e, draftId: string) => sendDraft(repo, transport(), cfg.mail, String(draftId)));
+  handle("mail:send", async (_e, draftId: string) => sendDraft(repo, transport(), cfg.mail, String(draftId), { tracker: tracker() }));
   handle("mail:sendApproved", async (e) => {
     if (batchRunning) throw new Error("Un envoi groupé est déjà en cours");
     batchRunning = true;
     stopBatch = false;
     try {
       return await sendBatch(repo, transport(), cfg.mail, {
+        tracker: tracker(),
         shouldStop: () => stopBatch,
         onProgress: (p) => e.sender.send("mail:progress", p),
       });
@@ -247,6 +295,22 @@ function registerIpc() {
     repo.setLeadStatus(l.id, "skipped");
     return repo.getLead(l.id);
   });
+
+  handle("inbox:check", (e) => checkInbox(e.sender));
+  handle("inbox:list", () => repo.listInbound(50));
+  handle("track:get", () => ({ enabled: !!cfg.getTrack(), url: cfg.getTrack()?.url ?? null }));
+  handle("track:install", async (e, token: string) => {
+    const secret = randomBytes(24).toString("hex");
+    const r = await deployTracker({ token: String(token).trim(), secret }, fetch, (l) => e.sender.send("track:log", l));
+    cfg.setTrack(r.url, secret);
+    return { enabled: true, url: r.url };
+  });
+  handle("track:disable", () => {
+    cfg.clearTrack();
+    return { enabled: false, url: null };
+  });
+  handle("track:refresh", () => refreshOpens());
+  handle("track:opens", () => repo.opensByLead());
 
   handle("update:state", () => updateState());
   handle("update:check", () => checkNow());
@@ -312,6 +376,14 @@ app.whenReady().then(async () => {
   repo.migrate();
   registerIpc();
   createWindow();
+  // Tâches de fond : boîte de réception et ouvertures, toutes les 15 min (si configurés)
+  const tick = () => {
+    const wc = BrowserWindow.getAllWindows()[0]?.webContents;
+    if (cfg.getMailPass() && cfg.mail.address) checkInbox(wc).catch(() => undefined);
+    refreshOpens().catch(() => undefined);
+  };
+  setTimeout(tick, 30_000);
+  setInterval(tick, 15 * 60_000);
 });
 
 app.on("second-instance", () => {

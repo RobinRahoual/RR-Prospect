@@ -26,3 +26,6 @@ export { scanOpenAgenda, eventToLead } from "./scan/openagenda";
 export { analyzeLead, extractSignals, scoreSite, pickEmail, isPublicHost, fetchSite } from "./scan/analyze";
 export type { SiteSignals } from "./scan/analyze";
 export * from "./mail/mailer";
+export * from "./mail/inbox";
+export { deployTracker, Tracker } from "./track/cloudflare";
+export { WORKER_JS } from "./track/worker-source";

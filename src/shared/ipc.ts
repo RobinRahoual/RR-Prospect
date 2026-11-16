@@ -41,7 +41,35 @@ export interface MailState {
   cap: number;
 }
 
+export interface InboundItem {
+  leadId: string;
+  leadName: string;
+  kind: string;
+  from: string;
+  subject: string;
+  snippet: string;
+  date: string;
+}
+
+export interface TrackState {
+  enabled: boolean;
+  url: string | null;
+}
+
 export interface Api {
+  inbox: {
+    check(): Promise<{ replies: number; stops: number; bounces: number; checked: number }>;
+    list(): Promise<InboundItem[]>;
+    onNew(cb: (r: { replies: number; stops: number; bounces: number }) => void): void;
+  };
+  track: {
+    get(): Promise<TrackState>;
+    install(token: string): Promise<TrackState>;
+    disable(): Promise<TrackState>;
+    refresh(): Promise<Record<string, { opens: number; last: string | null }>>;
+    opens(): Promise<Record<string, { opens: number; last: string | null }>>;
+    onLog(cb: (l: string) => void): void;
+  };
   mail: {
     get(): Promise<MailState>;
     set(settings: Partial<MailSettings>, appPassword?: string): Promise<MailState>;

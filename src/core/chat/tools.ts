@@ -48,6 +48,12 @@ export const TOOLS: ToolSpec[] = [
     },
   },
   {
+    name: "get_activity",
+    description:
+      "Activité après envoi : réponses reçues (réponse, STOP, rebond), leads qui ont ouvert le mail sans répondre, et relances à faire (contactés il y a 4 jours ou plus sans réponse).",
+    parameters: { type: "object", properties: {} },
+  },
+  {
     name: "get_lead",
     description: "Détails d'un lead et de ses brouillons. `lead` = id, début d'id ou nom.",
     parameters: { type: "object", properties: { lead: { type: "string" } }, required: ["lead"] },
@@ -193,6 +199,21 @@ export async function executeTool(deps: ToolDeps, call: ToolCall): Promise<ToolO
         out.push({ ...brief(r.lead), score: r.lead.gapScore, raisons: r.lead.gapReasons, email: r.lead.email, note: r.note });
       }
       return { result: { analysés: out }, cards: [leadsCard(targets.map((l) => repo.getLead(l.id)!))] };
+    }
+    case "get_activity": {
+      const opens = repo.opensByLead();
+      const leads = repo.listLeads();
+      const byId = new Map(leads.map((l) => [l.id, l]));
+      const follow = repo.followUps(4).slice(0, 15).map((f) => ({ lead: byId.get(f.leadId)?.name ?? f.name, envoyéLe: f.sentAt.slice(0, 10), ouvertures: f.opens }));
+      const openedNoReply = leads.filter((l) => l.status === "sent" && opens[l.id]).slice(0, 10).map((l) => ({ lead: l.name, ouvertures: opens[l.id]!.opens }));
+      return {
+        result: {
+          réponses: repo.listInbound(10).map((i) => ({ lead: i.leadName, type: i.kind, objet: i.subject, extrait: i.snippet.slice(0, 160), date: i.date.slice(0, 10) })),
+          ouvertsSansRéponse: openedNoReply,
+          relancesÀFaire: follow,
+          note: "Les ouvertures sont indicatives (certains clients mail chargent les images automatiquement).",
+        },
+      };
     }
     case "get_lead": {
       const l = resolveLead(repo, a.lead);

@@ -16,6 +16,10 @@ interface StoredConfig {
   geminiKeyEnc?: string; // chiffré via DPAPI (Windows)
   scan?: ScanSettings;
   mail?: MailSettings;
+  trackUrl?: string;
+  trackSecretEnc?: string;
+  trackSecretPlain?: string;
+  lastInboxCheck?: string;
   mailPassEnc?: string;
   mailPassPlain?: string;
   oaKeyEnc?: string;
@@ -101,6 +105,29 @@ export class ConfigStore {
       return null;
     }
     return this.c.mailPassPlain ?? null;
+  }
+
+  setTrack(url: string, secret: string): void {
+    const enc = safeStorage.isEncryptionAvailable();
+    this.set({
+      trackUrl: url,
+      trackSecretEnc: enc ? safeStorage.encryptString(secret).toString("base64") : undefined,
+      trackSecretPlain: enc ? undefined : secret,
+    });
+  }
+
+  clearTrack(): void {
+    this.set({ trackUrl: undefined, trackSecretEnc: undefined, trackSecretPlain: undefined });
+  }
+
+  getTrack(): { url: string; secret: string } | null {
+    if (!this.c.trackUrl) return null;
+    try {
+      const secret = this.c.trackSecretEnc ? safeStorage.decryptString(Buffer.from(this.c.trackSecretEnc, "base64")) : this.c.trackSecretPlain;
+      return secret ? { url: this.c.trackUrl, secret } : null;
+    } catch {
+      return null;
+    }
   }
 
   get scan(): ScanSettings {

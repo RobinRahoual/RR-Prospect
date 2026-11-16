@@ -13,8 +13,12 @@ export function Workspace({ cfg, onCfg, reloadKey = 0 }: { cfg: AppConfig; onCfg
   const [leads, setLeads] = useState<Lead[]>([]);
   const [sel, setSel] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [opens, setOpens] = useState<Record<string, { opens: number; last: string | null }>>({});
 
-  const refresh = async () => setLeads(await window.api.leads.list());
+  const refresh = async () => {
+    setLeads(await window.api.leads.list());
+    setOpens(await window.api.track.opens().catch(() => ({})));
+  };
   useEffect(() => {
     refresh();
   }, [reloadKey]);
@@ -48,6 +52,7 @@ export function Workspace({ cfg, onCfg, reloadKey = 0 }: { cfg: AppConfig; onCfg
               <span className="badges">
                 {l.gapScore != null && <em className="badge">{l.gapScore}</em>}
                 <em className={`badge s-${l.status}`}>{l.status}</em>
+                {opens[l.id] && <em className="badge s-sent" title="Ouvertures du mail (indicatif)">ouvert ×{opens[l.id]!.opens}</em>}
               </span>
             </li>
           ))}

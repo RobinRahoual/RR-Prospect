@@ -2,20 +2,21 @@ import { useEffect, useState } from "react";
 import type { UpdateState } from "../shared/ipc";
 import type { AppConfig } from "../shared/ipc";
 import { Chat } from "./Chat";
+import { Inbox } from "./Inbox";
 import { Settings } from "./Settings";
 import { Workspace } from "./Workspace";
 
 export function Shell({ cfg, onCfg }: { cfg: AppConfig; onCfg: (c: AppConfig) => void }) {
-  const [tab, setTab] = useState<"chat" | "leads" | "settings">("chat");
+  const [tab, setTab] = useState<"chat" | "leads" | "inbox" | "settings">("chat");
   const [reload, setReload] = useState(0);
   const [upd, setUpd] = useState<UpdateState | null>(null);
   useEffect(() => {
     window.api.update.state().then(setUpd);
     window.api.update.onState(setUpd);
   }, []);
-  const go = (t: "chat" | "leads" | "settings") => {
+  const go = (t: "chat" | "leads" | "inbox" | "settings") => {
     setTab(t);
-    if (t === "leads") setReload((n) => n + 1);
+    if (t === "leads" || t === "inbox") setReload((n) => n + 1);
   };
   return (
     <div className="shell">
@@ -29,6 +30,9 @@ export function Shell({ cfg, onCfg }: { cfg: AppConfig; onCfg: (c: AppConfig) =>
           </button>
           <button className={tab === "leads" ? "on" : ""} onClick={() => go("leads")}>
             Leads
+          </button>
+          <button className={tab === "inbox" ? "on" : ""} onClick={() => go("inbox")}>
+            Réponses
           </button>
           <button className={tab === "settings" ? "on" : ""} onClick={() => go("settings")}>
             Réglages
@@ -52,6 +56,9 @@ export function Shell({ cfg, onCfg }: { cfg: AppConfig; onCfg: (c: AppConfig) =>
         </div>
         <div hidden={tab !== "leads"} className="fill">
           <Workspace cfg={cfg} onCfg={onCfg} reloadKey={reload} />
+        </div>
+        <div hidden={tab !== "inbox"} className="fill scroll">
+          <Inbox reloadKey={reload} onChanged={() => setReload((n) => n + 1)} />
         </div>
         <div hidden={tab !== "settings"} className="fill scroll">
           <Settings onScanned={() => setReload((n) => n + 1)} />

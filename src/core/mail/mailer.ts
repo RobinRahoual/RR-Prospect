@@ -1,5 +1,7 @@
 import type { Repo } from "../repo";
+import { randomUUID } from "node:crypto";
 import { htmlToPlain } from "../chat/tools";
+import type { Tracker } from "../track/cloudflare";
 
 export interface MailSettings {
   address: string; // adresse Gmail d'envoi
@@ -43,16 +45,19 @@ export function normalizeMail(input: Partial<MailSettings> | undefined, base: Ma
 }
 
 /** Corps + signature + mention de désinscription (obligatoire en prospection B2B). */
-export function buildMessage(s: MailSettings, to: string, subject: string, bodyHtml: string): MailMessage {
+export function buildMessage(s: MailSettings, to: string, subject: string, bodyHtml: string, pixelUrl?: string): MailMessage {
   const sig = esc(s.signature).replace(/\n/g, "<br>");
   const stop = "Si vous ne souhaitez plus recevoir de message de ma part, répondez simplement « STOP » : je ne vous écrirai plus.";
-  const html = `${bodyHtml}<p>${sig}</p><p style="color:#777;font-size:12px">${esc(stop)}</p>`;
+  const notice = pixelUrl ? " Ce message contient un pixel de mesure d'ouverture." : "";
+  const html = `${bodyHtml}<p>${sig}</p><p style="color:#777;font-size:12px">${esc(stop + notice)}</p>${
+    pixelUrl ? `<img src="${esc(pixelUrl)}" width="1" height="1" alt="" style="display:none">` : ""
+  }`;
   return {
     from: `"${s.fromName.replace(/"/g, "")}" <${s.address}>`,
     to,
     subject: subject.replace(/[\r\n]+/g, " ").trim(),
     html,
-    text: `${htmlToPlain(bodyHtml)}\n\n${s.signature}\n\n${stop}`,
+    text: `${htmlToPlain(bodyHtml)}\n\n${s.signature}\n\n${stop}${notice}`,
     headers: { "List-Unsubscribe": `<mailto:${s.address}?subject=STOP>` },
   };
 }
@@ -75,7 +80,7 @@ export async function sendDraft(
   t: Transport,
   s: MailSettings,
   draftId: string,
-  o: { now?: Date; toOverride?: string } = {}
+  o: { now?: Date; toOverride?: string; tracker?: Tracker | null } = {}
 ): Promise<SendResult> {
   const now = o.now ?? new Date();
   const draft = repo.getDraft(draftId);
@@ -92,10 +97,15 @@ export async function sendDraft(
   const st = mailStatus(repo, s, now);
   if (st.sentToday >= st.cap) return { ok: false, error: `Plafond du jour atteint (${st.cap} envois)` };
 
-  const msg = buildMessage(s, to, draft.subject, draft.bodyHtml);
+  let trackId: string | null = null;
+  if (o.tracker) {
+    const id = randomUUID();
+    if (await o.tracker.register(id)) trackId = id;
+  }
+  const msg = buildMessage(s, to, draft.subject, draft.bodyHtml, trackId && o.tracker ? o.tracker.pixelUrl(trackId) : undefined);
   try {
     const r = await t.send(msg);
-    repo.recordSend({ draftId: draft.id, leadId: lead.id, to, subject: draft.subject, messageId: r.messageId, status: "sent" });
+    repo.recordSend({ draftId: draft.id, leadId: lead.id, to, subject: draft.subject, messageId: r.messageId, status: "sent", trackId });
     repo.updateDraft(draft.id, { status: "sent" });
     repo.setLeadStatus(lead.id, "sent");
     return { ok: true, to, messageId: r.messageId };
@@ -132,6 +142,7 @@ export async function sendBatch(
     shouldStop?: () => boolean;
     delayRange?: [number, number];
     now?: () => Date;
+    tracker?: Tracker | null;
   } = {}
 ): Promise<{ sent: number; failed: number; stopped: boolean }> {
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -145,7 +156,7 @@ export async function sendBatch(
   for (let i = 0; i < queue.length; i++) {
     if (o.shouldStop?.()) return { sent, failed, stopped: true };
     const { d, l } = queue[i]!;
-    const result = await sendDraft(repo, t, s, d.id, { now: o.now?.() });
+    const result = await sendDraft(repo, t, s, d.id, { now: o.now?.(), tracker: o.tracker });
     o.onProgress?.({ index: i + 1, total: queue.length, lead: l.name, result });
     if (result.ok) sent++;
     else {

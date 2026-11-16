@@ -2,6 +2,25 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { Api } from "../shared/ipc";
 
 const api: Api = {
+  inbox: {
+    check: () => ipcRenderer.invoke("inbox:check"),
+    list: () => ipcRenderer.invoke("inbox:list"),
+    onNew: (cb) => {
+      ipcRenderer.removeAllListeners("inbox:new");
+      ipcRenderer.on("inbox:new", (_e, r) => cb(r));
+    },
+  },
+  track: {
+    get: () => ipcRenderer.invoke("track:get"),
+    install: (token) => ipcRenderer.invoke("track:install", token),
+    disable: () => ipcRenderer.invoke("track:disable"),
+    refresh: () => ipcRenderer.invoke("track:refresh"),
+    opens: () => ipcRenderer.invoke("track:opens"),
+    onLog: (cb) => {
+      ipcRenderer.removeAllListeners("track:log");
+      ipcRenderer.on("track:log", (_e, l) => cb(l));
+    },
+  },
   mail: {
     get: () => ipcRenderer.invoke("mail:get"),
     set: (settings, pass) => ipcRenderer.invoke("mail:set", settings, pass),

@@ -95,10 +95,18 @@ export class Repo {
         id TEXT PRIMARY KEY, draft_id TEXT NOT NULL, lead_id TEXT NOT NULL, to_email TEXT NOT NULL,
         subject TEXT NOT NULL, message_id TEXT, status TEXT NOT NULL, error TEXT, sent_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS inbound (
+        message_id TEXT PRIMARY KEY, lead_id TEXT, kind TEXT NOT NULL, from_email TEXT, subject TEXT,
+        snippet TEXT, received_at TEXT, created_at TEXT NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS idx_sends_at ON sends(sent_at);
       CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, seq);
     `);
     this.addColumn("leads", "analyzed_at", "TEXT");
+    this.addColumn("sends", "track_id", "TEXT");
+    this.addColumn("sends", "opens", "INTEGER DEFAULT 0");
+    this.addColumn("sends", "first_open_at", "TEXT");
+    this.addColumn("sends", "last_open_at", "TEXT");
   }
 
   /** Migrations légères : colonne ajoutée après la v0.3 */
@@ -213,15 +221,82 @@ export class Repo {
   }
 
   // ---- Envois ----
-  recordSend(r: { draftId: string; leadId: string; to: string; subject: string; messageId: string | null; status: "sent" | "failed"; error?: string }): void {
+  recordSend(r: { draftId: string; leadId: string; to: string; subject: string; messageId: string | null; status: "sent" | "failed"; error?: string; trackId?: string | null }): void {
     this.db.run(
-      "INSERT INTO sends (id, draft_id, lead_id, to_email, subject, message_id, status, error, sent_at) VALUES (?,?,?,?,?,?,?,?,?)",
-      [randomUUID(), r.draftId, r.leadId, r.to, r.subject, r.messageId, r.status, r.error ?? null, now()]
+      "INSERT INTO sends (id, draft_id, lead_id, to_email, subject, message_id, status, error, sent_at, track_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+      [randomUUID(), r.draftId, r.leadId, r.to, r.subject, r.messageId, r.status, r.error ?? null, now(), r.trackId ?? null]
     );
+  }
+
+  /** Envois suivis des `days` derniers jours (pour interroger le Worker) */
+  listTrackIds(days = 30): string[] {
+    const since = new Date(Date.now() - days * 86400_000).toISOString();
+    return this.db
+      .all<Row>("SELECT track_id FROM sends WHERE track_id IS NOT NULL AND status = 'sent' AND sent_at >= ?", [since])
+      .map((r) => String(r.track_id));
+  }
+
+  setOpens(trackId: string, opens: number, first: number | null, last: number | null): void {
+    this.db.run("UPDATE sends SET opens = ?, first_open_at = ?, last_open_at = ? WHERE track_id = ?", [
+      opens, first ? new Date(first).toISOString() : null, last ? new Date(last).toISOString() : null, trackId,
+    ]);
+  }
+
+  opensByLead(): Record<string, { opens: number; last: string | null }> {
+    const out: Record<string, { opens: number; last: string | null }> = {};
+    for (const r of this.db.all<Row>("SELECT lead_id, SUM(opens) AS n, MAX(last_open_at) AS last FROM sends WHERE track_id IS NOT NULL GROUP BY lead_id")) {
+      if (Number(r.n) > 0) out[String(r.lead_id)] = { opens: Number(r.n), last: (r.last as string) ?? null };
+    }
+    return out;
+  }
+
+  /** Leads contactés il y a au moins `days` jours, sans réponse : candidats à la relance */
+  followUps(days = 4): { leadId: string; name: string; email: string; sentAt: string; opens: number }[] {
+    const before = new Date(Date.now() - days * 86400_000).toISOString();
+    return this.db
+      .all<Row>(
+        `SELECT l.id, l.name, s.to_email, MAX(s.sent_at) AS sent_at, SUM(COALESCE(s.opens,0)) AS opens
+         FROM sends s JOIN leads l ON l.id = s.lead_id
+         WHERE s.status = 'sent' AND l.status = 'sent' AND l.deleted = 0
+         GROUP BY l.id HAVING MAX(s.sent_at) <= ? ORDER BY MAX(s.sent_at)`,
+        [before]
+      )
+      .map((r) => ({ leadId: String(r.id), name: String(r.name), email: String(r.to_email), sentAt: String(r.sent_at), opens: Number(r.opens) }))
+      .filter((f) => !this.isSuppressed(f.email));
   }
 
   countSentSince(iso: string): number {
     return Number(this.db.all<Row>("SELECT COUNT(*) AS n FROM sends WHERE status = 'sent' AND sent_at >= ?", [iso])[0]?.n ?? 0);
+  }
+
+  // ---- Boîte de réception ----
+  hasInbound(messageId: string): boolean {
+    return this.db.all("SELECT 1 FROM inbound WHERE message_id = ?", [messageId]).length > 0;
+  }
+
+  recordInbound(r: { messageId: string; leadId: string | null; kind: string; from: string; subject: string; snippet: string; date: string }): void {
+    this.db.run(
+      "INSERT OR IGNORE INTO inbound (message_id, lead_id, kind, from_email, subject, snippet, received_at, created_at) VALUES (?,?,?,?,?,?,?,?)",
+      [r.messageId, r.leadId, r.kind, r.from, r.subject, r.snippet, r.date, now()]
+    );
+  }
+
+  listInbound(limit = 30): { leadId: string; leadName: string; kind: string; from: string; subject: string; snippet: string; date: string }[] {
+    return this.db
+      .all<Row>(
+        `SELECT i.*, l.name AS lead_name FROM inbound i JOIN leads l ON l.id = i.lead_id
+         WHERE i.kind != 'ignore' ORDER BY i.received_at DESC LIMIT ?`,
+        [limit]
+      )
+      .map((r) => ({
+        leadId: String(r.lead_id), leadName: String(r.lead_name), kind: String(r.kind), from: String(r.from_email ?? ""),
+        subject: String(r.subject ?? ""), snippet: String(r.snippet ?? ""), date: String(r.received_at ?? ""),
+      }));
+  }
+
+  /** Date du premier envoi (borne de recherche dans la boîte) */
+  firstSendAt(): string | null {
+    return (this.db.all<Row>("SELECT MIN(sent_at) AS d FROM sends WHERE status = 'sent'")[0]?.d as string) ?? null;
   }
 
   // ---- Chat ----
