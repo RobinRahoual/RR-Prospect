@@ -20,3 +20,8 @@ export { SCAN_CATEGORIES, DEFAULT_SCAN, normalizeScan } from "./scan/settings";
 export type { ScanSettings, ScanCategory } from "./scan/settings";
 export { scanArea, geocode, buildOverpassQuery, elementToLead } from "./scan/osm";
 export type { ScanReport, GeoResult } from "./scan/osm";
+export { runScan } from "./scan/run";
+export { scanSirene, itemToLead } from "./scan/sirene";
+export { scanOpenAgenda, eventToLead } from "./scan/openagenda";
+export { analyzeLead, extractSignals, scoreSite, pickEmail, isPublicHost, fetchSite } from "./scan/analyze";
+export type { SiteSignals } from "./scan/analyze";

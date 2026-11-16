@@ -36,6 +36,18 @@ export const TOOLS: ToolSpec[] = [
     },
   },
   {
+    name: "analyze_lead",
+    description:
+      "Visite le site web d'un lead (ou des meilleurs leads non analysés si `lead` est omis) et mesure sa présence visuelle : mobile, images, vidéo, mise à jour, réseaux sociaux, email de contact. Met à jour le score. Ne lit pas Instagram.",
+    parameters: {
+      type: "object",
+      properties: {
+        lead: { type: "string", description: "id, début d'id ou nom ; omis = les meilleurs leads non analysés" },
+        limit: { type: "integer", description: "Si `lead` est omis : combien de leads analyser (1 à 10, défaut 5)" },
+      },
+    },
+  },
+  {
     name: "get_lead",
     description: "Détails d'un lead et de ses brouillons. `lead` = id, début d'id ou nom.",
     parameters: { type: "object", properties: { lead: { type: "string" } }, required: ["lead"] },
@@ -89,6 +101,7 @@ export const TOOLS: ToolSpec[] = [
 export interface ToolDeps {
   repo: Repo;
   scan?: (overrides: Partial<ScanSettings>) => Promise<ScanReport & { settings: ScanSettings }>;
+  analyze?: (lead: Lead) => Promise<{ lead: Lead; signals: unknown; note?: string }>;
   generateDraft: (lead: Lead, instructions?: string) => Promise<{ draft: DraftOut; engine: string }>;
 }
 
@@ -167,6 +180,19 @@ export async function executeTool(deps: ToolDeps, call: ToolCall): Promise<ToolO
         result: { zone: r.settings.placeLabel, rayonKm: r.settings.radiusKm, trouvés: r.found, ajoutés: r.added, déjàPrésents: r.duplicates, source: r.source, meilleurs: top.map(brief) },
         cards: top.length ? [leadsCard(top)] : undefined,
       };
+    }
+    case "analyze_lead": {
+      if (!deps.analyze) throw new Error("L'analyse web n'est pas disponible");
+      const targets = str(a.lead)
+        ? [resolveLead(repo, a.lead)]
+        : repo.listLeads().filter((l) => !l.analyzedAt && l.website).slice(0, Math.min(Math.max(Number(a.limit) || 5, 1), 10));
+      if (!targets.length) return { result: { message: "Aucun lead avec site web à analyser." } };
+      const out = [];
+      for (const l of targets) {
+        const r = await deps.analyze(l);
+        out.push({ ...brief(r.lead), score: r.lead.gapScore, raisons: r.lead.gapReasons, email: r.lead.email, note: r.note });
+      }
+      return { result: { analysés: out }, cards: [leadsCard(targets.map((l) => repo.getLead(l.id)!))] };
     }
     case "get_lead": {
       const l = resolveLead(repo, a.lead);

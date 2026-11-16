@@ -122,6 +122,20 @@ function LeadView({ lead, cfg, onCfg, onChanged }: { lead: Lead; cfg: AppConfig;
     onCfg({ ...cfg, mode });
   }
 
+  async function analyze() {
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await window.api.leads.analyze(lead.id);
+      if (r.note) setErr(r.note);
+      onChanged();
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function generate() {
     setBusy(true);
     setErr("");
@@ -158,6 +172,9 @@ function LeadView({ lead, cfg, onCfg, onChanged }: { lead: Lead; cfg: AppConfig;
             </button>
           ))}
         </div>
+        <button disabled={busy} onClick={analyze} title="Visite le site et mesure sa présence visuelle">
+          {lead.analyzedAt ? "Ré-analyser le site" : "Analyser le site"}
+        </button>
         <button className="primary" disabled={busy} onClick={generate}>
           {busy ? "Génération…" : "Générer un brouillon"}
         </button>

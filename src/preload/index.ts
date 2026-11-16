@@ -17,12 +17,15 @@ const api: Api = {
   leads: {
     list: () => ipcRenderer.invoke("leads:list"),
     create: (input) => ipcRenderer.invoke("leads:create", input),
+    analyze: (id) => ipcRenderer.invoke("leads:analyze", id),
   },
   scan: {
     getSettings: () => ipcRenderer.invoke("scan:get"),
     setSettings: (s) => ipcRenderer.invoke("scan:set", s),
     geocode: (q) => ipcRenderer.invoke("scan:geocode", q),
     run: () => ipcRenderer.invoke("scan:run"),
+    hasOaKey: () => ipcRenderer.invoke("scan:hasOaKey"),
+    setOaKey: (k) => ipcRenderer.invoke("scan:setOaKey", k),
     onLog: (cb) => {
       ipcRenderer.removeAllListeners("scan:log");
       ipcRenderer.on("scan:log", (_e, l: string) => cb(l));

@@ -38,6 +38,7 @@ function toLead(r: Row): Lead {
     eventUrl: str(r.event_url),
     source: str(r.source),
     status: r.status as LeadStatus,
+    analyzedAt: str(r.analyzed_at),
     createdAt: String(r.created_at),
     updatedAt: String(r.updated_at),
   };
@@ -92,6 +93,33 @@ export class Repo {
       );
       CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, seq);
     `);
+    this.addColumn("leads", "analyzed_at", "TEXT");
+  }
+
+  /** Migrations légères : colonne ajoutée après la v0.3 */
+  private addColumn(table: string, col: string, type: string): void {
+    const has = this.db.all<Row>(`PRAGMA table_info(${table})`).some((r) => r.name === col);
+    if (!has) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
+  }
+
+  private static norm(n: string): string {
+    return n.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+  }
+
+  /** Même nom normalisé déjà présent (autre source, même commerce) */
+  hasLeadNamed(name: string): boolean {
+    const n = Repo.norm(name);
+    return !!n && this.db.all<Row>("SELECT name FROM leads WHERE deleted = 0").some((r) => Repo.norm(String(r.name)) === n);
+  }
+
+  updateLead(id: string, p: Partial<Pick<Lead, "email" | "phone" | "website" | "gapScore" | "gapReasons">> & { analyzed?: boolean }): void {
+    const cur = this.getLead(id);
+    if (!cur) throw new Error("Lead introuvable");
+    const m = { ...cur, ...Object.fromEntries(Object.entries(p).filter(([, v]) => v !== undefined)) } as Lead;
+    this.db.run("UPDATE leads SET email = ?, phone = ?, website = ?, gap_score = ?, gap_reasons = ?, analyzed_at = ?, updated_at = ? WHERE id = ?", [
+      m.email, m.phone, m.website, m.gapScore, m.gapReasons.length ? JSON.stringify(m.gapReasons) : null,
+      p.analyzed ? now() : cur.analyzedAt, now(), id,
+    ]);
   }
 
   createLead(i: LeadInput): Lead {

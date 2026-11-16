@@ -11,12 +11,17 @@ export function Settings({ onScanned }: { onScanned: () => void }) {
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const [report, setReport] = useState<ScanReport | null>(null);
+  const [oaKey, setOaKey] = useState("");
+  const [uidText, setUidText] = useState("");
+  const [hasKey, setHasKey] = useState(false);
 
   useEffect(() => {
     window.api.scan.getSettings().then((v) => {
       setS(v);
       setPlace(v.placeLabel);
+      setUidText(v.agendaUids.join(", "));
     });
+    window.api.scan.hasOaKey().then(setHasKey);
     window.api.scan.onLog((l) => setLog((x) => [...x.slice(-20), l]));
   }, []);
 
@@ -38,6 +43,11 @@ export function Settings({ onScanned }: { onScanned: () => void }) {
   async function save(): Promise<boolean> {
     setErr("");
     try {
+      if (oaKey.trim()) {
+        await window.api.scan.setOaKey(oaKey);
+        setOaKey("");
+        setHasKey(true);
+      }
       setS(await window.api.scan.setSettings(s!));
       setMsg("Réglages enregistrés.");
       return true;
@@ -94,6 +104,41 @@ export function Settings({ onScanned }: { onScanned: () => void }) {
         ))}
       </fieldset>
 
+      <fieldset className="cats">
+        <legend>Sources (toutes gratuites)</legend>
+        <label className="check">
+          <input type="checkbox" checked={s.sources.osm} onChange={(e) => set({ sources: { ...s.sources, osm: e.target.checked } })} />
+          OpenStreetMap — commerces existants (site, téléphone, email quand ils sont renseignés)
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={s.sources.sirene} onChange={(e) => set({ sources: { ...s.sources, sirene: e.target.checked } })} />
+          SIRENE — entreprises créées récemment (pas encore de présence visuelle)
+        </label>
+        {s.sources.sirene && (
+          <label>
+            Créées depuis moins de {s.sireneMonths} mois
+            <input type="range" min={1} max={60} value={s.sireneMonths} onChange={(e) => set({ sireneMonths: Number(e.target.value) })} />
+          </label>
+        )}
+        <label className="check">
+          <input type="checkbox" checked={s.sources.openagenda} onChange={(e) => set({ sources: { ...s.sources, openagenda: e.target.checked } })} />
+          OpenAgenda — événements à venir (clé gratuite + identifiants d'agenda)
+        </label>
+        {s.sources.openagenda && (
+          <>
+            <label>
+              Clé API OpenAgenda {hasKey && <span className="muted small">(enregistrée — laisse vide pour la garder)</span>}
+              <input type="password" value={oaKey} onChange={(e) => setOaKey(e.target.value)} placeholder="Clé de lecture openagenda.com" />
+            </label>
+            <label>
+              UID des agendas (un par ligne ou séparés par des virgules)
+              <textarea rows={2} value={uidText} onChange={(e) => { setUidText(e.target.value); set({ agendaUids: e.target.value.split(/[\s,;]+/).filter(Boolean) }); }} />
+              <span className="muted small">Le numéro dans l'adresse d'un agenda : openagenda.com/…/agendas/<b>12345678</b></span>
+            </label>
+          </>
+        )}
+      </fieldset>
+
       <label>
         Maximum de leads ajoutés par scan
         <input type="number" min={1} max={500} value={s.maxResults} onChange={(e) => set({ maxResults: Number(e.target.value) })} />
@@ -111,7 +156,10 @@ export function Settings({ onScanned }: { onScanned: () => void }) {
       {busy && log.length > 0 && <pre className="log">{log.join("\n")}</pre>}
       {report && (
         <div className="muted">
-          {report.found} établissements trouvés · <strong>{report.added} ajoutés</strong> · {report.duplicates} déjà présents. Le score vient de ce qui est renseigné dans OpenStreetMap : vérifie la présence réelle avant d'écrire.
+          {report.source} : {report.found} résultats · <strong>{report.added} ajoutés</strong> · {report.duplicates} déjà présents. Le score est une estimation : utilise « Analyser le site » avant d'écrire.
+          {report.errors?.map((e) => (
+            <div key={e} className="error">{e}</div>
+          ))}
         </div>
       )}
     </div>

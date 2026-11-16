@@ -40,12 +40,15 @@ export interface Api {
   leads: {
     list(): Promise<Lead[]>;
     create(input: LeadInput): Promise<Lead>;
+    analyze(id: string): Promise<{ lead: Lead; note?: string }>;
   };
   scan: {
     getSettings(): Promise<ScanSettings>;
     setSettings(s: Partial<ScanSettings>): Promise<ScanSettings>;
     geocode(query: string): Promise<GeoResult>;
     run(): Promise<ScanReport>;
+    hasOaKey(): Promise<boolean>;
+    setOaKey(key: string): Promise<void>;
     onLog(cb: (line: string) => void): void;
   };
   chat: {

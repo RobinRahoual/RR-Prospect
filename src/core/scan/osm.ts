@@ -96,6 +96,7 @@ export interface ScanReport {
   added: number;
   duplicates: number;
   source: string;
+  errors?: string[];
 }
 
 export async function scanArea(repo: Repo, s: ScanSettings, f: F = fetch, onLog?: (l: string) => void): Promise<ScanReport> {
@@ -132,6 +133,10 @@ export async function scanArea(repo: Repo, s: ScanSettings, f: F = fetch, onLog?
   let duplicates = 0;
   for (const c of cands) {
     if (added >= s.maxResults) break;
+    if (repo.hasLeadNamed(c.name)) {
+      duplicates++;
+      continue;
+    }
     try {
       repo.createLead(c);
       added++;

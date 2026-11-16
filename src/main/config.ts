@@ -14,6 +14,8 @@ interface StoredConfig {
   geminiFallback?: string;
   geminiKeyEnc?: string; // chiffré via DPAPI (Windows)
   scan?: ScanSettings;
+  oaKeyEnc?: string;
+  oaKeyPlain?: string;
   geminiKeyPlain?: string; // uniquement si le chiffrement est indisponible
 }
 
@@ -62,6 +64,21 @@ export class ConfigStore {
       return null;
     }
     return this.c.geminiKeyPlain ?? null;
+  }
+
+  setOaKey(key: string): void {
+    if (!key) return this.set({ oaKeyEnc: undefined, oaKeyPlain: undefined });
+    if (safeStorage.isEncryptionAvailable()) this.set({ oaKeyEnc: safeStorage.encryptString(key).toString("base64"), oaKeyPlain: undefined });
+    else this.set({ oaKeyPlain: key, oaKeyEnc: undefined });
+  }
+
+  getOaKey(): string | null {
+    try {
+      if (this.c.oaKeyEnc) return safeStorage.decryptString(Buffer.from(this.c.oaKeyEnc, "base64"));
+    } catch {
+      return null;
+    }
+    return this.c.oaKeyPlain ?? null;
   }
 
   get scan(): ScanSettings {

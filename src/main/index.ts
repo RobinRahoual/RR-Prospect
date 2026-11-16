@@ -1,8 +1,9 @@
 import { app, BrowserWindow, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
+import dns from "node:dns/promises";
 import path from "node:path";
 import {
   buildPrompt, buildSystem, Database, executeTool, GeminiChat, GeminiEngine, gpuCheck, HintError, LLMRouter, OllamaChat,
-  OllamaEngine, pullModel, geocode, normalizeScan, scanArea, Repo, runAgent, TOOLS, testGeminiKey, trimHistory,
+  OllamaEngine, pullModel, geocode, normalizeScan, runScan, analyzeLead, isPublicHost, Repo, runAgent, TOOLS, testGeminiKey, trimHistory,
   type DraftStatus, type LeadInput, type Mode,
 } from "../core";
 import type { SetupParams, SetupStep, StepResult } from "../shared/ipc";
@@ -96,6 +97,16 @@ async function runStep(name: SetupStep, p: SetupParams, log: (l: string) => void
   }
 }
 
+/** Résout le nom d'hôte et refuse les adresses privées (anti-SSRF : l'URL d'un site vient de données externes). */
+async function resolvesPublic(host: string): Promise<boolean> {
+  try {
+    const addrs = await dns.lookup(host, { all: true });
+    return addrs.length > 0 && addrs.every((a) => isPublicHost(a.address));
+  } catch {
+    return false;
+  }
+}
+
 /* ---------------- Chat agent ---------------- */
 const busy = new Set<string>();
 
@@ -119,8 +130,9 @@ async function sendChat(event: IpcMainInvokeEvent, convId: string, text: string)
       repo,
       scan: async (o: Partial<import("../core").ScanSettings>) => {
         const settings = normalizeScan(o, cfg.scan);
-        return { ...(await scanArea(repo, settings)), settings };
+        return { ...(await runScan(repo, settings, { openAgendaKey: cfg.getOaKey() })), settings };
       },
+      analyze: (lead: import("../core").Lead) => analyzeLead(repo, lead, fetch, resolvesPublic),
       generateDraft: async (lead: import("../core").Lead, instructions?: string) =>
         router.generate(buildPrompt(lead, { instructions, examples: repo.listApprovedExamples(3) }), c.mode),
     };
@@ -166,7 +178,15 @@ function registerIpc() {
     return s;
   });
   handle("scan:geocode", (_e, q: string) => geocode(String(q)));
-  handle("scan:run", (e) => scanArea(repo, cfg.scan, fetch, (l) => e.sender.send("scan:log", l)));
+  handle("scan:run", (e) => runScan(repo, cfg.scan, { openAgendaKey: cfg.getOaKey(), onLog: (l) => e.sender.send("scan:log", l) }));
+  handle("scan:hasOaKey", () => !!cfg.getOaKey());
+  handle("scan:setOaKey", (_e, k: string) => cfg.setOaKey(String(k ?? "").trim()));
+  handle("leads:analyze", async (_e, id: string) => {
+    const lead = repo.getLead(id);
+    if (!lead) throw new Error("Lead introuvable");
+    const r = await analyzeLead(repo, lead, fetch, resolvesPublic);
+    return { lead: r.lead, note: r.note };
+  });
 
   handle("chat:list", () => repo.listConversations());
   handle("chat:create", () => repo.createConversation());

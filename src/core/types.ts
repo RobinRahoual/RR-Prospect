@@ -24,11 +24,12 @@ export interface Lead {
   eventUrl: string | null;
   source: string | null;
   status: LeadStatus;
+  analyzedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export type LeadInput = Partial<Omit<Lead, "id" | "status" | "createdAt" | "updatedAt">> & { name: string };
+export type LeadInput = Partial<Omit<Lead, "id" | "status" | "analyzedAt" | "createdAt" | "updatedAt">> & { name: string };
 
 export interface Draft {
   id: string;
