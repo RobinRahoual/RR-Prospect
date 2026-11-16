@@ -1,0 +1,43 @@
+{
+  "name": "rr-prospect",
+  "version": "0.2.0",
+  "description": "RR Prospect — prospection automatisée pour vidéaste/photographe freelance (local d'abord)",
+  "author": "Robin Rahoual",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "dist/main/index.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build:renderer": "vite build",
+    "build:main": "node build/esbuild.mjs",
+    "build": "npm run build:renderer && npm run build:main",
+    "start": "npm run build && electron .",
+    "dist": "npm run build && electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@types/sql.js": "^1.4.9",
+    "@vitejs/plugin-react": "^4.3.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "esbuild": "^0.24.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "sql.js": "^1.11.0",
+    "typescript": "^5.6.0",
+    "vite": "^5.4.0",
+    "vitest": "^2.1.0",
+    "zod": "^3.23.0"
+  },
+  "build": {
+    "appId": "fr.robinrahoual.rrprospect",
+    "productName": "RR Prospect",
+    "directories": { "output": "release" },
+    "files": ["dist/**", "package.json"],
+    "win": { "target": "nsis", "artifactName": "RR-Prospect-Setup-${version}.${ext}" },
+    "nsis": { "oneClick": true, "perMachine": false, "createDesktopShortcut": true, "runAfterFinish": true }
+  }
+}
