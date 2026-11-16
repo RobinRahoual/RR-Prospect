@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>RR Prospect — Configuration</title>
+<style>
+  body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0b0f;color:#eee;font:15px system-ui,sans-serif}
+  form{width:min(440px,90vw);display:grid;gap:14px}
+  h1{margin:0 0 4px;font-size:22px}
+  p{margin:0;color:#9a9aa5;font-size:13px}
+  label{display:grid;gap:6px;font-size:13px;color:#bbb}
+  input{padding:11px 12px;border-radius:8px;border:1px solid #2a2a35;background:#14141b;color:#fff;font-size:15px}
+  button{padding:12px;border:0;border-radius:8px;background:#e8ff59;color:#111;font-weight:600;font-size:15px;cursor:pointer}
+  #err{color:#ff7b7b;min-height:1.2em;font-size:13px}
+</style>
+</head>
+<body>
+<form id="f">
+  <h1>RR Prospect</h1>
+  <p>Connexion à ton serveur. Tu pourras la modifier plus tard en supprimant le fichier config.json du dossier de l'application.</p>
+  <label>Adresse de la webapp (NAS)
+    <input id="url" placeholder="http://192.168.1.50:3000" required>
+  </label>
+  <label>Modèle Ollama local
+    <input id="model" placeholder="mistral-nemo">
+  </label>
+  <div id="err"></div>
+  <button>Enregistrer et ouvrir</button>
+</form>
+<script>
+  const $ = (id) => document.getElementById(id);
+  window.rrSetup.get().then((c) => { $("url").value = c.appUrl || ""; $("model").value = c.ollamaModel || "mistral-nemo"; });
+  $("f").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      await window.rrSetup.save({ appUrl: $("url").value.trim(), ollamaModel: $("model").value.trim() });
+      await window.rrSetup.done();
+    } catch (err) {
+      $("err").textContent = "Adresse invalide (ex. http://192.168.1.50:3000)";
+    }
+  });
+</script>
+</body>
+</html>

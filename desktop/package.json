@@ -1,0 +1,22 @@
+{
+  "name": "rr-prospect-desktop",
+  "version": "0.1.0",
+  "description": "RR Prospect — client Windows avec pont Ollama local",
+  "author": "Robin Rahoual",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "fr.robinrahoual.rrprospect",
+    "productName": "RR Prospect",
+    "files": ["main.js", "preload.js", "setup.html", "package.json"],
+    "win": { "target": "nsis", "artifactName": "RR-Prospect-Setup-${version}.${ext}" },
+    "nsis": { "oneClick": true, "perMachine": false, "createDesktopShortcut": true, "runAfterFinish": true }
+  }
+}
