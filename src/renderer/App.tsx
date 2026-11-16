@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AppConfig } from "../shared/ipc";
 import { Wizard } from "./Wizard";
-import { Workspace } from "./Workspace";
+import { Shell } from "./Shell";
 
 export default function App() {
   const [cfg, setCfg] = useState<AppConfig | null>(null);
@@ -12,5 +12,5 @@ export default function App() {
 
   if (!cfg) return <div className="center muted">Chargement…</div>;
   if (!cfg.setupDone) return <Wizard onDone={reload} />;
-  return <Workspace cfg={cfg} onCfg={setCfg} />;
+  return <Shell cfg={cfg} onCfg={setCfg} />;
 }

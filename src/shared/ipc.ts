@@ -1,3 +1,5 @@
+import type { ChatMessage } from "../core/chat/types";
+import type { Conversation } from "../core/repo";
 import type { Draft, DraftStatus, Lead, LeadInput, Mode } from "../core/types";
 
 export interface AppConfig {
@@ -36,6 +38,15 @@ export interface Api {
   leads: {
     list(): Promise<Lead[]>;
     create(input: LeadInput): Promise<Lead>;
+  };
+  chat: {
+    list(): Promise<Conversation[]>;
+    create(): Promise<Conversation>;
+    messages(conversationId: string): Promise<ChatMessage[]>;
+    /** Résolu quand la réponse complète est terminée ; les messages arrivent en direct via onMessage */
+    send(conversationId: string, text: string): Promise<void>;
+    remove(conversationId: string): Promise<void>;
+    onMessage(cb: (m: ChatMessage) => void): void;
   };
   drafts: {
     list(leadId: string): Promise<Draft[]>;

@@ -1,7 +1,8 @@
 import { app, BrowserWindow, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
 import path from "node:path";
 import {
-  buildPrompt, Database, GeminiEngine, gpuCheck, HintError, LLMRouter, OllamaEngine, pullModel, Repo, testGeminiKey,
+  buildPrompt, buildSystem, Database, executeTool, GeminiChat, GeminiEngine, gpuCheck, HintError, LLMRouter, OllamaChat,
+  OllamaEngine, pullModel, Repo, runAgent, TOOLS, testGeminiKey, trimHistory,
   type DraftStatus, type LeadInput, type Mode,
 } from "../core";
 import type { SetupParams, SetupStep, StepResult } from "../shared/ipc";
@@ -95,6 +96,48 @@ async function runStep(name: SetupStep, p: SetupParams, log: (l: string) => void
   }
 }
 
+/* ---------------- Chat agent ---------------- */
+const busy = new Set<string>();
+
+async function sendChat(event: IpcMainInvokeEvent, convId: string, text: string) {
+  const clean = text.trim().slice(0, 8000);
+  if (!clean) return;
+  if (busy.has(convId)) throw new Error("Une réponse est déjà en cours dans cette conversation.");
+  busy.add(convId);
+  try {
+    const first = repo.getMessages(convId).length === 0;
+    const emit = (m: unknown) => event.sender.send("chat:message", m);
+    emit(repo.addMessage(convId, { role: "user", content: clean }));
+    if (first) repo.renameConversation(convId, clean.replace(/\s+/g, " ").slice(0, 48));
+
+    const c = cfg.v;
+    const key = cfg.getGeminiKey();
+    const local = new OllamaChat({ baseUrl: c.ollamaUrl, model: c.ollamaModel, ensureRunning: () => ensureRunning(c.ollamaUrl) });
+    const cloud = key && c.geminiModel ? new GeminiChat({ apiKey: key, model: c.geminiModel, fallbackModel: c.geminiFallback ?? undefined }) : null;
+    const router = buildRouter();
+    const deps = {
+      repo,
+      generateDraft: async (lead: import("../core").Lead, instructions?: string) =>
+        router.generate(buildPrompt(lead, { instructions, examples: repo.listApprovedExamples(3) }), c.mode),
+    };
+
+    await runAgent(
+      {
+        local,
+        cloud,
+        mode: c.mode,
+        system: buildSystem(repo),
+        tools: TOOLS,
+        execute: (call) => executeTool(deps, call),
+        onMessage: (m) => emit(repo.addMessage(convId, m)),
+      },
+      trimHistory(repo.getMessages(convId))
+    );
+  } finally {
+    busy.delete(convId);
+  }
+}
+
 function registerIpc() {
   handle("config:get", () => cfg.toPublic());
   handle("config:setMode", (_e, mode: Mode) => {
@@ -111,6 +154,12 @@ function registerIpc() {
     }
   });
   handle("setup:finish", () => cfg.set({ setupDone: true }));
+
+  handle("chat:list", () => repo.listConversations());
+  handle("chat:create", () => repo.createConversation());
+  handle("chat:messages", (_e, id: string) => repo.getMessages(id));
+  handle("chat:send", (e, id: string, text: string) => sendChat(e, id, text));
+  handle("chat:remove", (_e, id: string) => repo.deleteConversation(id));
 
   handle("leads:list", () => repo.listLeads());
   handle("leads:create", (_e, input: LeadInput) => repo.createLead(input));

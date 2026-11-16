@@ -1,6 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { Database } from "./db";
+import type { ChatMessage } from "./chat/types";
+import { htmlToPlain } from "./chat/tools";
 import type { Draft, DraftOut, DraftStatus, Lead, LeadInput, LeadStatus } from "./types";
+
+export interface Conversation {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 type Row = Record<string, unknown>;
 const now = () => new Date().toISOString();
@@ -73,6 +82,15 @@ export class Repo {
         email TEXT PRIMARY KEY, reason TEXT, created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_drafts_lead ON drafts(lead_id);
+      CREATE TABLE IF NOT EXISTS conversations (
+        id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL,
+        tool_calls TEXT, tool_call_id TEXT, tool_name TEXT, raw TEXT, cards TEXT, engine TEXT,
+        seq INTEGER NOT NULL, created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, seq);
     `);
   }
 
@@ -159,5 +177,68 @@ export class Repo {
 
   isSuppressed(email: string): boolean {
     return this.db.all("SELECT 1 FROM suppression WHERE email = ?", [email.trim().toLowerCase()]).length > 0;
+  }
+
+  // ---- Chat ----
+  createConversation(title = "Nouvelle conversation"): Conversation {
+    const t = now();
+    const id = randomUUID();
+    this.db.run("INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?,?,?,?)", [id, title, t, t]);
+    return { id, title, createdAt: t, updatedAt: t };
+  }
+
+  listConversations(): Conversation[] {
+    return this.db
+      .all<Row>("SELECT * FROM conversations ORDER BY updated_at DESC LIMIT 200")
+      .map((r) => ({ id: r.id as string, title: r.title as string, createdAt: r.created_at as string, updatedAt: r.updated_at as string }));
+  }
+
+  renameConversation(id: string, title: string): void {
+    this.db.run("UPDATE conversations SET title = ? WHERE id = ?", [title, id]);
+  }
+
+  deleteConversation(id: string): void {
+    this.db.run("DELETE FROM messages WHERE conversation_id = ?", [id]);
+    this.db.run("DELETE FROM conversations WHERE id = ?", [id]);
+  }
+
+  addMessage(conversationId: string, m: ChatMessage): ChatMessage {
+    const t = now();
+    const id = randomUUID();
+    const seq = (this.db.all<Row>("SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM messages WHERE conversation_id = ?", [conversationId])[0]?.n as number) ?? 1;
+    const j = (v: unknown) => (v === undefined ? null : JSON.stringify(v));
+    this.db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, tool_calls, tool_call_id, tool_name, raw, cards, engine, seq, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [id, conversationId, m.role, m.content, j(m.toolCalls), m.toolCallId ?? null, m.toolName ?? null, j(m.raw), j(m.cards), m.engine ?? null, seq, t]
+    );
+    this.db.run("UPDATE conversations SET updated_at = ? WHERE id = ?", [t, conversationId]);
+    return { ...m, id, conversationId, createdAt: t };
+  }
+
+  getMessages(conversationId: string): ChatMessage[] {
+    const p = (v: unknown) => (typeof v === "string" ? JSON.parse(v) : undefined);
+    return this.db
+      .all<Row>("SELECT * FROM messages WHERE conversation_id = ? ORDER BY seq", [conversationId])
+      .map((r) => ({
+        id: r.id as string,
+        conversationId,
+        role: r.role as ChatMessage["role"],
+        content: r.content as string,
+        toolCalls: p(r.tool_calls),
+        toolCallId: (r.tool_call_id as string) ?? undefined,
+        toolName: (r.tool_name as string) ?? undefined,
+        raw: p(r.raw),
+        cards: p(r.cards),
+        engine: (r.engine as string) ?? undefined,
+        createdAt: r.created_at as string,
+      }));
+  }
+
+  /** Derniers brouillons validés par Robin : servent d'exemples de style (few-shot) */
+  listApprovedExamples(limit = 3): { subject: string; body: string }[] {
+    return this.db
+      .all<Row>("SELECT subject, body_html FROM drafts WHERE status IN ('approved','sent') AND deleted = 0 ORDER BY updated_at DESC LIMIT ?", [limit])
+      .map((r) => ({ subject: r.subject as string, body: htmlToPlain(r.body_html as string) }));
   }
 }

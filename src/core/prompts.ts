@@ -3,14 +3,17 @@ import type { Lead, Prompt } from "./types";
 
 export const PROMPT_VERSION = "2026-11-16.1";
 
-export const SYSTEM_PROFILE = `Tu rédiges des e-mails de prospection à froid pour Robin Rahoual, vidéaste et photographe freelance basé à Dijon.
-
-PROFIL
-- Spécialités : vidéo et photo pour l'événementiel, le monde de la nuit et les entreprises locales.
+/** Profil de Robin, partagé par le rédacteur d'e-mails et l'assistant de chat. */
+export const PROFIL_ROBIN = `- Spécialités : vidéo et photo pour l'événementiel, le monde de la nuit et les entreprises locales.
 - Approche : direction artistique créative + exécution technique rapide. Il parle retour sur investissement, pas "beau pour le beau" : visuels percutants ("hero visuals") à fort engagement pour les réseaux sociaux.
 - Réactivité : montage ultra-rapide sous DaVinci Resolve, livraison de contenus courts (Réels, Shorts, TikTok) en format vertical.
 - Matériel (gage de qualité, à ne mentionner que si c'est pertinent, en une demi-phrase maximum) : Sony A7 III, Tamron 28-200 mm f/2.8-5.6 (polyvalent en événementiel), moniteur Feelworld vertical pour la captation directe en format court.
-- Portfolio : https://robinrahoual.fr
+- Portfolio : https://robinrahoual.fr`;
+
+export const SYSTEM_PROFILE = `Tu rédiges des e-mails de prospection à froid pour Robin Rahoual, vidéaste et photographe freelance basé à Dijon.
+
+PROFIL
+${PROFIL_ROBIN}
 
 STYLE
 - Français, vouvoiement direct mais chaleureux (jamais de tutoiement). Énergie créative, zéro jargon commercial, zéro flatterie générique.
@@ -56,12 +59,23 @@ function facts(lead: Lead): string[] {
   return out;
 }
 
-export function buildPrompt(lead: Lead): Prompt {
-  return {
-    system: SYSTEM_PROFILE,
-    user:
-      "Rédige l'e-mail de prospection pour ce lead.\n\n" +
-      facts(lead).join("\n") +
-      "\n\nAppuie l'accroche sur la lacune ou l'occasion la plus concrète ci-dessus.",
-  };
+export interface PromptOptions {
+  /** Consigne ponctuelle de Robin pour ce brouillon (ex. « plus court », « angle Réels ») */
+  instructions?: string;
+  /** E-mails déjà validés par Robin : le ton à imiter (jamais à recopier) */
+  examples?: { subject: string; body: string }[];
+}
+
+export function buildPrompt(lead: Lead, opts: PromptOptions = {}): Prompt {
+  let user =
+    "Rédige l'e-mail de prospection pour ce lead.\n\n" +
+    facts(lead).join("\n") +
+    "\n\nAppuie l'accroche sur la lacune ou l'occasion la plus concrète ci-dessus.";
+  if (opts.examples?.length) {
+    user +=
+      "\n\nE-mails que Robin a déjà validés (imite leur ton et leur longueur, ne les recopie pas) :\n" +
+      opts.examples.map((e, i) => `--- Exemple ${i + 1}\nObjet : ${e.subject}\n${e.body}`).join("\n");
+  }
+  if (opts.instructions?.trim()) user += `\n\nConsigne de Robin pour ce brouillon : ${opts.instructions.trim()}`;
+  return { system: SYSTEM_PROFILE, user };
 }

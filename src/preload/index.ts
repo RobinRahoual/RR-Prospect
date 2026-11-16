@@ -18,6 +18,17 @@ const api: Api = {
     list: () => ipcRenderer.invoke("leads:list"),
     create: (input) => ipcRenderer.invoke("leads:create", input),
   },
+  chat: {
+    list: () => ipcRenderer.invoke("chat:list"),
+    create: () => ipcRenderer.invoke("chat:create"),
+    messages: (id) => ipcRenderer.invoke("chat:messages", id),
+    send: (id, text) => ipcRenderer.invoke("chat:send", id, text),
+    remove: (id) => ipcRenderer.invoke("chat:remove", id),
+    onMessage: (cb) => {
+      ipcRenderer.removeAllListeners("chat:message");
+      ipcRenderer.on("chat:message", (_e, m) => cb(m));
+    },
+  },
   drafts: {
     list: (leadId) => ipcRenderer.invoke("drafts:list", leadId),
     generate: (leadId, mode) => ipcRenderer.invoke("drafts:generate", leadId, mode),

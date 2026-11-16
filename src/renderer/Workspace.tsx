@@ -171,7 +171,7 @@ function LeadView({ lead, cfg, onCfg, onChanged }: { lead: Lead; cfg: AppConfig;
   );
 }
 
-function DraftEditor({ draft, onSaved }: { draft: Draft; onSaved: () => void }) {
+export function DraftEditor({ draft, onSaved }: { draft: Draft; onSaved: () => void }) {
   const [subject, setSubject] = useState(draft.subject);
   const body = useRef<HTMLDivElement>(null);
   const [msg, setMsg] = useState("");
